@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<!--
+  批次追溯关系图（独立页面，只读展示，不跳转原单）
+  数据接口契约（接真实数据时把 API_CONFIG.enabled 改成 true）：
+  GET {url}?type=LOT&id=xxx&upstream=1&depth=6
+  {
+    "nodes": [
+      { "key":"LOT:123", "type":"LOT", "no":"RM-01", "material":"原料A", "productType":"" },
+      { "key":"MO:456",  "type":"MO",  "no":"MO-001", "material":"成品Y" },
+      { "key":"BILL:PRD_INSTOCK:789", "type":"BILL", "no":"IN-001", "billType":"PRD_INSTOCK" }
+    ],
+    "edges": [
+      { "from":"LOT:123", "to":"MO:456", "qty":120,
+        "billType":"PRD_PICKMTRL", "billNo":"PICK-001", "billId":1001 }
+    ]
+  }
+  说明：nodes 只需返回 LOT / MO；BILL 节点由前端根据边的 billType/billNo 自动生成。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>批次追溯关系图</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#F5F6F8;
+    --surface:#FFFFFF;
+    --ink:#1F2430;
+    --muted:#6B7280;
+    --line:#E3E6EB;
+    --brand:#2F6FED;
+    --brand-soft:#EEF4FF;
+    --lot-bg:#EEF4FF;
+    --lot-line:#C7D9FF;
+    --lot-text:#174EA6;
+    --mo-bg:#FFFFFF;
+    --bill-bg:#F7F8FA;
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 4px 12px rgba(16,24,40,.06);
+    --font:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--font);}
+  .app{display:flex;flex-direction:column;height:100%;min-height:560px}
+
+  .topbar{
+    display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+    padding:12px 18px;background:var(--surface);border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex;align-items:baseline;gap:8px;font-size:16px;font-weight:600;white-space:nowrap}
+  .brand small{font-size:12px;font-weight:400;color:var(--muted)}
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;
+    background:#FFF7E6;color:#9A6700;font-size:12px;border:1px solid #F5E1B8}
+  .badge::before{content:"";width:6px;height:6px;border-radius:50%;background:#D4A017}
+
+  .query{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  select,input,button{font:inherit;color:inherit}
+  select,input[type=text]{
+    height:34px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:#fff;outline:none;
+  }
+  input[type=text]{width:190px}
+  select:focus,input:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(47,111,237,.12)}
+  button{
+    height:34px;padding:0 14px;border-radius:8px;border:1px solid transparent;background:var(--brand);color:#fff;
+    cursor:pointer;font-weight:500;transition:.15s;
+  }
+  button:hover{filter:brightness(1.05)}
+  button.ghost{background:#fff;color:var(--ink);border-color:var(--line)}
+  button.ghost:hover{border-color:#C9CED8}
+
+  .views{display:flex;margin-left:auto;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
+  .views button{background:#fff;color:var(--muted);border:0;border-radius:0;height:32px;padding:0 14px;font-weight:400}
+  .views button.active{background:var(--brand-soft);color:var(--brand);font-weight:600}
+
+  .stage{display:grid;grid-template-columns:1fr 268px;gap:14px;padding:14px;flex:1;min-height:0}
+  .canvas-wrap{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+  svg{display:block;width:100%;height:100%;cursor:grab}
+  svg.panning{cursor:grabbing}
+
+  .zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
+  .zoom button{width:32px;height:32px;padding:0;background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:8px}
+  .zoom button.wide{width:auto;padding:0 10px;font-size:12px}
+
+  .legend{position:absolute;left:12px;bottom:12px;display:flex;gap:14px;padding:6px 10px;
+    background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .dot{width:9px;height:9px;border-radius:3px;display:inline-block}
+  .dot.lot{background:var(--lot-bg);border:1px solid var(--lot-line)}
+  .dot.mo{background:#fff;border:1px solid #B9C0CB}
+  .dot.bill{background:var(--bill-bg);border:1px solid #B9C0CB}
+
+  .toast{position:absolute;left:50%;top:16px;transform:translate(-50%,-8px);opacity:0;pointer-events:none;
+    background:rgba(31,36,48,.92);color:#fff;padding:7px 14px;border-radius:8px;font-size:13px;transition:.2s}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);
+    padding:16px;overflow:auto;min-height:0}
+  .panel-empty{color:var(--muted);font-size:13px;text-align:center;margin-top:40px;line-height:1.9}
+  .p-kicker{font-size:12px;color:var(--muted);letter-spacing:.04em}
+  .p-title{font-size:20px;font-weight:600;margin:6px 0 2px;word-break:break-all}
+  .p-sub{font-size:13px;color:var(--muted);margin-bottom:14px}
+  .p-sec{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+  .p-sec h4{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.03em}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:13px}
+  .kv b{font-weight:500;color:var(--muted);font-weight:400}
+  .list{display:flex;flex-direction:column;gap:6px}
+  .row{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;
+    background:#FBFCFD;font-size:12px;cursor:pointer}
+  .row:hover{border-color:#C7D9FF;background:var(--brand-soft)}
+  .row .tag{flex:none;padding:1px 6px;border-radius:5px;background:#EEF0F4;color:var(--muted);font-size:11px}
+  .row .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .empty{font-size:12px;color:#9AA1AC}
+
+  .node{cursor:pointer}
+  .node rect{transition:.15s}
+  .node:hover rect{filter:brightness(.98)}
+  .node-lot rect{fill:var(--lot-bg);stroke:var(--lot-line);stroke-width:1}
+  .node-lot .t{fill:var(--lot-text);font-weight:600;font-size:14px}
+  .node-lot .s{fill:#4B6CB7;font-size:11px}
+  .node-mo rect{fill:var(--mo-bg);stroke:#B9C0CB;stroke-width:1}
+  .node-mo .t{fill:var(--ink);font-weight:600;font-size:14px}
+  .node-mo .s{fill:var(--muted);font-size:11px}
+  .node-bill rect{fill:var(--bill-bg);stroke:#B9C0CB;stroke-width:1}
+  .node-bill .t{fill:#374151;font-weight:600;font-size:13px}
+  .node-bill .s{fill:var(--muted);font-size:11px}
+  .node.selected rect{stroke:var(--brand);stroke-width:2;filter:drop-shadow(0 4px 10px rgba(47,111,237,.18))}
+  .node.dim{opacity:.26}
+
+  .edge{stroke:#C2C8D2;stroke-width:1.4;fill:none}
+  .edge.hl{stroke:var(--brand);stroke-width:2}
+  .edge.dim{opacity:.18}
+  .elabel{font-size:10px;fill:#8A919C;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
+
+  @media (max-width:960px){
+    .stage{grid-template-columns:1fr;grid-template-rows:1fr 240px}
+    .views{margin-left:0}
+    .panel{order:2}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">批次追溯关系图 <small>正查 / 反查 / 按工单</small> <span class="badge" id="demoBadge">演示数据</span></div>
+
+    <div class="query">
+      <select id="queryType">
+        <option value="lot">按批号</option>
+        <option value="mo">按生产订单号</option>
+      </select>
+      <input id="queryInput" type="text" placeholder="输入批号或工单号" autocomplete="off">
+      <button id="btnQuery">查询</button>
+      <button id="btnReset" class="ghost">重置</button>
+    </div>
+
+    <div class="views">
+      <button data-mode="bill" class="active">单据视图</button>
+      <button data-mode="lot">批号视图</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <section class="canvas-wrap">
+      <svg id="svg" preserveAspectRatio="xMidYMin meet"></svg>
+      <div class="zoom">
+        <button id="zoomIn" title="放大">+</button>
+        <button id="zoomOut" title="缩小">−</button>
+        <button id="zoomFit" class="wide" title="复位">适应</button>
+      </div>
+      <div class="legend">
+        <span><i class="dot lot"></i>批号</span>
+        <span><i class="dot mo"></i>工单</span>
+        <span><i class="dot bill"></i>单据</span>
+        <span>点击节点高亮上下游</span>
+      </div>
+      <div class="toast" id="toast"></div>
+    </section>
+
+    <aside class="panel" id="panel">
+      <div class="panel-empty">点击关系图中的节点<br>查看批号与上游、下游单据</div>
+    </aside>
+  </main>
+</div>
+
+<script>
+/* ============ 演示数据（结构与接口契约一致） ============ */
+const DEMO_NODES = [
+  { key:'LOT:RM-01', type:'LOT', no:'RM-01', material:'原料 A', productType:'' },
+  { key:'LOT:RM-02', type:'LOT', no:'RM-02', material:'原料 B', productType:'' },
+  { key:'MO:MO-S1',  type:'MO',  no:'MO-S1',  material:'半成品 X', productType:'' },
+  { key:'LOT:SF-01', type:'LOT', no:'SF-01', material:'半成品 X', productType:'MAIN' },
+  { key:'MO:MO-F1',  type:'MO',  no:'MO-F1',  material:'成品 Y', productType:'' },
+  { key:'LOT:FG-01', type:'LOT', no:'FG-01', material:'成品 Y', productType:'MAIN' },
+  { key:'LOT:CP-01', type:'LOT', no:'CP-01', material:'联产品 Z', productType:'CO' },
+  { key:'LOT:BP-01', type:'LOT', no:'BP-01', material:'副产品 W', productType:'BY' }
+];
+
+const DEMO_EDGES = [
+  { from:'LOT:RM-01', to:'MO:MO-S1', qty:120, billType:'PRD_PICKMTRL', billNo:'PICK-001', billId:'p1' },
+  { from:'LOT:RM-02', to:'MO:MO-S1', qty:30,  billType:'PRD_PICKMTRL', billNo:'PICK-001', billId:'p1' },
+  { from:'MO:MO-S1',  to:'LOT:SF-01', qty:100, billType:'PRD_INSTOCK', billNo:'IN-001', billId:'i1', productType:'MAIN' },
+  { from:'LOT:SF-01', to:'MO:MO-F1', qty:100, billType:'PRD_PICKMTRL', billNo:'PICK-002', billId:'p2' },
+  { from:'MO:MO-F1',  to:'LOT:FG-01', qty:80, billType:'PRD_INSTOCK', billNo:'IN-002', billId:'i2', productType:'MAIN' },
+  { from:'MO:MO-F1',  to:'LOT:CP-01', qty:10, billType:'PRD_INSTOCK', billNo:'IN-002', billId:'i2', productType:'CO' },
+  { from:'MO:MO-F1',  to:'LOT:BP-01', qty:5,  billType:'PRD_INSTOCK', billNo:'IN-002', billId:'i2', productType:'BY' }
+];
+
+/* 接真实数据时改为 enabled:true，并填接口地址 */
+const API_CONFIG = { enabled:false, url:'/KingdeeTrace/api/trace' };
+
+const BILL_LABEL = {
+  PRD_PICKMTRL:'生产领料单',
+  PRD_INSTOCK:'生产入库单',
+  PUR_RECEIPT:'采购入库单',
+  SAL_OUTSTOCK:'销售出库单'
+};
+const PRODUCT_LABEL = { MAIN:'主产品', CO:'联产品', BY:'副产品' };
+
+const state = {
+  mode:'bill',
+  graph:null,
+  selected:null,
+  reach:null,
+  scale:1, tx:0, ty:0,
+  layout:null
+};
+
+const svg = document.getElementById('svg');
+const toastEl = document.getElementById('toast');
+const panel = document.getElementById('panel');
+
+/* ============ 图构建 ============ */
+function baseGraph() {
+  return {
+    nodes: DEMO_NODES.map(n => Object.assign({}, n)),
+    edges: DEMO_EDGES.map(e => ({ from:e.from, to:e.to, label:qtyText(e.qty) }))
+  };
+}
+
+function billGraph() {
+  const nodes = DEMO_NODES.map(n => Object.assign({}, n));
+  const edges = [];
+  const seenBills = new Set();
+  const seenEdges = new Set();
+
+  function addEdge(from, to, label) {
+    const k = from + '>' + to;
+    if (seenEdges.has(k)) return;
+    seenEdges.add(k);
+    edges.push({ from:from, to:to, label:label || '' });
+  }
+
+  DEMO_EDGES.forEach(e => {
+    if (!e.billType || !e.billNo) { addEdge(e.from, e.to, qtyText(e.qty)); return; }
+
+    const billKey = 'BILL:' + e.billType + ':' + e.billId + ':' + e.billNo;
+    if (!seenBills.has(billKey)) {
+      seenBills.add(billKey);
+      nodes.push({ key:billKey, type:'BILL', no:e.billNo, billType:e.billType, billNo:e.billNo });
+    }
+
+    const fromNode = DEMO_NODES.find(n => n.key === e.from);
+    const toNode = DEMO_NODES.find(n => n.key === e.to);
+    if (fromNode && fromNode.type === 'LOT' && toNode && toNode.type === 'MO') {
+      addEdge(e.from, billKey, qtyText(e.qty));   // 批号 -> 领料单
+      addEdge(billKey, e.to, '');                // 领料单 -> 工单
+    } else if (fromNode && fromNode.type === 'MO' && toNode && toNode.type === 'LOT') {
+      addEdge(e.from, billKey, '');              // 工单 -> 入库单
+      addEdge(billKey, e.to, qtyText(e.qty));    // 入库单 -> 产出批号
+    } else {
+      addEdge(e.from, e.to, qtyText(e.qty));
+    }
+  });
+
+  return { nodes:nodes, edges:edges };
+}
+
+function qtyText(q) {
+  if (q === null || q === undefined) return '';
+  return Number(q).toLocaleString('zh-CN');
+}
+
+/* ============ 布局 ============ */
+const COL_W = 164, PAD_X = 34, PAD_Y = 26, GAP_Y = 16;
+const SIZE = {
+  LOT:{ w:116, h:56 },
+  MO:{ w:144, h:74 },
+  BILL:{ w:144, h:66 }
+};
+
+function computeLevels(nodes, edges) {
+  const adj = {}, radj = {}, indeg = {};
+  nodes.forEach(n => { adj[n.key] = []; radj[n.key] = []; indeg[n.key] = 0; });
+  edges.forEach(e => {
+    if (adj[e.from] && indeg[e.to] !== undefined) { adj[e.from].push(e.to); radj[e.to].push(e.from); indeg[e.to]++; }
+  });
+  const level = {}, queue = [];
+  nodes.forEach(n => { if (indeg[n.key] === 0) { level[n.key] = 0; queue.push(n.key); } });
+  while (queue.length) {
+    const u = queue.shift();
+    adj[u].forEach(v => {
+      level[v] = Math.max(level[v] === undefined ? 0 : level[v], level[u] + 1);
+      indeg[v]--;
+      if (indeg[v] === 0) queue.push(v);
+    });
+  }
+  nodes.forEach(n => { if (level[n.key] === undefined) level[n.key] = 0; });
+  return level;
+}
+
+function layoutGraph(graph) {
+  const levels = computeLevels(graph.nodes, graph.edges);
+  const cols = {};
+  graph.nodes.forEach(n => {
+    const lv = levels[n.key];
+    (cols[lv] = cols[lv] || []).push(n);
+  });
+
+  let maxTotal = 0, maxLevel = 0, maxW = 0;
+  Object.keys(cols).forEach(k => {
+    const lv = Number(k);
+    maxLevel = Math.max(maxLevel, lv);
+    let total = 0;
+    cols[lv].forEach((n, i) => { total += SIZE[n.type].h + (i ? GAP_Y : 0); maxW = Math.max(maxW, SIZE[n.type].w); });
+    maxTotal = Math.max(maxTotal, total);
+  });
+
+  const positions = {};
+  Object.keys(cols).forEach(k => {
+    const lv = Number(k);
+    const list = cols[lv];
+    let total = 0;
+    list.forEach((n, i) => { total += SIZE[n.type].h + (i ? GAP_Y : 0); });
+    let y = PAD_Y + (maxTotal - total) / 2;
+    list.forEach(n => {
+      const s = SIZE[n.type];
+      positions[n.key] = { x:PAD_X + lv * COL_W, y:y, w:s.w, h:s.h };
+      y += s.h + GAP_Y;
+    });
+  });
+
+  return {
+    positions: positions,
+    width: PAD_X * 2 + maxLevel * COL_W + maxW,
+    height: maxTotal + PAD_Y * 2
+  };
+}
+
+/* ============ 渲染 ============ */
+function render() {
+  state.graph = state.mode === 'bill' ? billGraph() : baseGraph();
+  state.layout = layoutGraph(state.graph);
+  const L = state.layout;
+
+  svg.setAttribute('viewBox', '0 0 ' + L.width + ' ' + L.height);
+  svg.innerHTML =
+    '<defs><marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">' +
+    '<path d="M1 1 L7 4 L1 7 Z" fill="#C2C8D2"></path></marker></defs>' +
+    '<g id="viewport"></g>';
+
+  const vp = svg.querySelector('#viewport');
+  const edgeSvg = state.graph.edges.map(e => edgeMarkup(e, L.positions)).join('');
+  const nodeSvg = state.graph.nodes.map(n => nodeMarkup(n, L.positions[n.key], state.graph)).join('');
+  vp.innerHTML = edgeSvg + nodeSvg;
+
+  applyTransform();
+  applyHighlight();
+
+  vp.querySelectorAll('.node').forEach(el => {
+    el.addEventListener('click', ev => {
+      ev.stopPropagation();
+      selectNode(el.getAttribute('data-key'));
+    });
+  });
+}
+
+function nodeMarkup(n, p, graph) {
+  if (!p) return '';
+  let title, sub1 = '', sub2 = '';
+  if (n.type === 'LOT') {
+    title = n.no;
+    sub1 = n.material + (n.productType ? ' · ' + (PRODUCT_LABEL[n.productType] || '') : '');
+  } else if (n.type === 'MO') {
+    title = n.no;
+    sub1 = n.material;
+    const bills = billsOfMo(n.key);
+    sub2 = bills.join('   ');
+  } else {
+    title = BILL_LABEL[n.billType] || '单据';
+    sub1 = n.no;
+  }
+
+  const cx = p.x + p.w / 2;
+  const isLOT = n.type === 'LOT';
+  const r = isLOT ? 12 : 8;
+  const tY = isLOT ? p.y + 22 : p.y + 22;
+  const sY = isLOT ? p.y + 41 : p.y + 41;
+
+  let text = '<text class="t" x="' + cx + '" y="' + tY + '" text-anchor="middle">' + esc(title) + '</text>';
+  if (sub1) text += '<text class="s" x="' + cx + '" y="' + sY + '" text-anchor="middle">' + esc(sub1) + '</text>';
+  if (sub2) text += '<text class="s" x="' + cx + '" y="' + (sY + 17) + '" text-anchor="middle">' + esc(sub2) + '</text>';
+
+  return '<g class="node node-' + n.type.toLowerCase() + '" data-key="' + escAttr(n.key) + '">' +
+         '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="' + r + '"></rect>' +
+         text + '</g>';
+}
+
+function billsOfMo(moKey) {
+  const out = [];
+  DEMO_EDGES.forEach(e => {
+    if (e.to !== moKey && e.from !== moKey) return;
+    if (!e.billNo) return;
+    const short = e.billType === 'PRD_PICKMTRL' ? '领料 ' : (e.billType === 'PRD_INSTOCK' ? '入库 ' : '');
+    const s = short + e.billNo;
+    if (out.indexOf(s) < 0) out.push(s);
+  });
+  return out.slice(0, 2);
+}
+
+function edgeMarkup(e, pos) {
+  const a = pos[e.from], b = pos[e.to];
+  if (!a || !b) return '';
+  const x1 = a.x + a.w, y1 = a.y + a.h / 2;
+  const x2 = b.x, y2 = b.y + b.h / 2;
+  const dx = Math.max(18, (x2 - x1) * 0.55);
+  const d = 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2;
+  let label = '';
+  if (e.label) {
+    label = '<text class="elabel" x="' + ((x1 + x2) / 2) + '" y="' + ((y1 + y2) / 2 - 6) + '" text-anchor="middle">' + esc(e.label) + '</text>';
+  }
+  return '<path class="edge" data-from="' + escAttr(e.from) + '" data-to="' + escAttr(e.to) +
+         '" d="' + d + '" marker-end="url(#arrow)"></path>' + label;
+}
+
+/* ============ 高亮与详情 ============ */
+function selectNode(key) {
+  state.selected = key;
+  const down = reachable(key, 'down');
+  const up = reachable(key, 'up');
+  state.reach = new Set([].concat(Array.from(down), Array.from(up), key));
+  applyHighlight();
+  renderPanel(findNode(key));
+}
+
+function reachable(start, dir) {
+  if (!state.graph) return new Set();
+  const g = state.graph;
+  const map = {};
+  g.edges.forEach(e => {
+    const a = dir === 'down' ? e.from : e.to;
+    const b = dir === 'down' ? e.to : e.from;
+    (map[a] = map[a] || []).push(b);
+  });
+  const seen = new Set([start]);
+  const queue = [start];
+  while (queue.length) {
+    const u = queue.shift();
+    (map[u] || []).forEach(v => { if (!seen.has(v)) { seen.add(v); queue.push(v); } });
+  }
+  return seen;
+}
+
+function applyHighlight() {
+  const reach = state.reach;
+  svg.querySelectorAll('.node').forEach(el => {
+    const k = el.getAttribute('data-key');
+    el.classList.toggle('selected', k === state.selected);
+    el.classList.toggle('dim', !!reach && !reach.has(k));
+  });
+  svg.querySelectorAll('.edge').forEach(el => {
+    const a = el.getAttribute('data-from'), b = el.getAttribute('data-to');
+    const hl = reach && reach.has(a) && reach.has(b);
+    el.classList.toggle('hl', !!hl);
+    el.classList.toggle('dim', !!reach && !hl);
+  });
+}
+
+function findNode(key) {
+  return state.graph ? state.graph.nodes.find(n => n.key === key) : null;
+}
+
+function renderPanel(node) {
+  if (!node) {
+    panel.innerHTML = '<div class="panel-empty">点击关系图中的节点<br>查看批号与上游、下游单据</div>';
+    return;
+  }
+
+  let kicker, title, sub;
+  if (node.type === 'LOT') {
+    kicker = '批号';
+    title = node.no;
+    sub = node.material + (node.productType ? ' · ' + (PRODUCT_LABEL[node.productType] || '') : '');
+  } else if (node.type === 'MO') {
+    kicker = '生产订单';
+    title = node.no;
+    sub = node.material;
+  } else {
+    kicker = '单据';
+    title = node.no;
+    sub = BILL_LABEL[node.billType] || '';
+  }
+
+  const ins = state.graph.edges.filter(e => e.to === node.key);
+  const outs = state.graph.edges.filter(e => e.from === node.key);
+
+  panel.innerHTML =
+    '<div class="p-kicker">' + esc(kicker) + '</div>' +
+    '<div class="p-title">' + esc(title) + '</div>' +
+    '<div class="p-sub">' + esc(sub) + '</div>' +
+    '<div class="kv"><span>上游节点</span><b>' + ins.length + '</b></div>' +
+    '<div class="kv"><span>下游节点</span><b>' + outs.length + '</b></div>' +
+    section('上游', ins, 'from') +
+    section('下游', outs, 'to');
+
+  panel.querySelectorAll('.row').forEach(el => {
+    el.addEventListener('click', () => selectNode(el.getAttribute('data-key')));
+  });
+}
+
+function section(title, edges, keyField) {
+  if (!edges.length) return '<div class="p-sec"><h4>' + title + '</h4><div class="empty">无</div></div>';
+  const rows = edges.slice(0, 12).map(e => {
+    const n = findNode(e[keyField]);
+    if (!n) return '';
+    const tag = n.type === 'LOT' ? '批号' : (n.type === 'MO' ? '工单' : '单据');
+    return '<div class="row" data-key="' + escAttr(n.key) + '">' +
+           '<span class="tag">' + tag + '</span><span class="nm">' + esc(n.no) + '</span>' +
+           (e.label ? '<span style="color:#8A919C">' + esc(e.label) + '</span>' : '') + '</div>';
+  }).join('');
+  return '<div class="p-sec"><h4>' + title + ' · ' + edges.length + '</h4><div class="list">' + rows + '</div></div>';
+}
+
+/* ============ 变换 ============ */
+function applyTransform() {
+  const vp = svg.querySelector('#viewport');
+  if (vp) vp.setAttribute('transform', 'translate(' + state.tx + ',' + state.ty + ') scale(' + state.scale + ')');
+}
+
+function zoomAt(factor) {
+  const vw = svg.viewBox.baseVal.width, vh = svg.viewBox.baseVal.height;
+  const cx = vw / 2, cy = vh / 2;
+  const next = clamp(state.scale * factor, 0.35, 2.6);
+  state.tx = cx - (cx - state.tx) * (next / state.scale);
+  state.ty = cy - (cy - state.ty) * (next / state.scale);
+  state.scale = next;
+  applyTransform();
+}
+
+function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+
+let dragging = false, lastX = 0, lastY = 0;
+svg.addEventListener('pointerdown', ev => {
+  if (ev.target.closest('.node')) return;
+  dragging = true; lastX = ev.clientX; lastY = ev.clientY;
+  svg.classList.add('panning');
+  svg.setPointerCapture(ev.pointerId);
+});
+svg.addEventListener('pointermove', ev => {
+  if (!dragging) return;
+  const sx = svg.viewBox.baseVal.width / svg.clientWidth;
+  const sy = svg.viewBox.baseVal.height / svg.clientHeight;
+  state.tx += (ev.clientX - lastX) * sx;
+  state.ty += (ev.clientY - lastY) * sy;
+  lastX = ev.clientX; lastY = ev.clientY;
+  applyTransform();
+});
+svg.addEventListener('pointerup', () => { dragging = false; svg.classList.remove('panning'); });
+svg.addEventListener('click', ev => {
+  if (!ev.target.closest('.node')) { state.selected = null; state.reach = null; applyHighlight(); renderPanel(null); }
+});
+svg.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  zoomAt(ev.deltaY < 0 ? 1.08 : 0.92);
+}, { passive:false });
+
+/* ============ 工具栏 ============ */
+document.querySelectorAll('.views button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (state.mode === btn.dataset.mode) return;
+    document.querySelectorAll('.views button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.mode = btn.dataset.mode;
+    state.selected = null; state.reach = null;
+    state.scale = 1; state.tx = 0; state.ty = 0;
+    render();
+    renderPanel(null);
+  });
+});
+
+document.getElementById('zoomIn').onclick = () => zoomAt(1.12);
+document.getElementById('zoomOut').onclick = () => zoomAt(0.9);
+document.getElementById('zoomFit').onclick = () => {
+  state.scale = 1; state.tx = 0; state.ty = 0; applyTransform();
+};
+
+document.getElementById('btnQuery').onclick = doQuery;
+document.getElementById('queryInput').addEventListener('keydown', ev => { if (ev.key === 'Enter') doQuery(); });
+
+function doQuery() {
+  const text = document.getElementById('queryInput').value.trim();
+  if (!text) { toast('请输入批号或工单号'); return; }
+  const base = baseGraph();
+  const target = base.nodes.find(n => n.no.toUpperCase() === text.toUpperCase());
+  if (!target) { toast('当前演示数据中没有「' + text + '」'); return; }
+
+  const key = target.key;
+  if (!findNode(key)) { toast('请切换到批号视图查看该节点'); return; }
+  selectNode(key);
+  toast('已定位：' + target.no);
+}
+
+document.getElementById('btnReset').onclick = () => {
+  document.getElementById('queryInput').value = '';
+  state.selected = null; state.reach = null;
+  state.scale = 1; state.tx = 0; state.ty = 0;
+  render(); renderPanel(null);
+};
+
+let toastTimer = null;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+}
+
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
+
+/* ============ 启动 ============ */
+render();
+</script>
+</body>
+</html>

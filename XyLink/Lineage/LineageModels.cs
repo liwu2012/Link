@@ -6,6 +6,13 @@ namespace XyLink.Lineage
     /// <summary>血缘图节点类型。</summary>
     public static class LineageNodeTypes
     {
+        // —— 金蝶自定义血缘 API 返回的两类节点 ——
+        /// <summary>批号节点（原料或成品，由 props.productType / 方向区分）。</summary>
+        public const string Batch = "batch";
+        /// <summary>生产工单节点。</summary>
+        public const string Mo = "mo";
+
+        // —— 以下为自推导模式（legacy）使用的细粒度类型 ——
         public const string ProductBatch = "productBatch";
         public const string ProductInbound = "productInbound";
         public const string ProductionOrder = "productionOrder";
@@ -18,6 +25,11 @@ namespace XyLink.Lineage
     /// <summary>血缘图边类型（方向为上游 → 下游）。</summary>
     public static class LineageEdgeTypes
     {
+        // —— 金蝶血缘 API 边（按来源单据 FormId 区分） ——
+        /// <summary>通用血缘边（来源单据见 props.billType）。</summary>
+        public const string Trace = "trace";
+
+        // —— 以下为自推导模式（legacy）使用的细粒度类型 ——
         public const string ContainsProductBatch = "contains";
         public const string Produces = "produces";
         public const string ForOrder = "forOrder";
@@ -29,10 +41,14 @@ namespace XyLink.Lineage
     /// <summary>一次血缘查询参数。</summary>
     public sealed class LineageQuery
     {
-        /// <summary>forward=产品批号正查供应商；backward=原料批号反查产品；full=双向/全链。</summary>
-        public string Mode { get; set; } = "forward";
+        /// <summary>forward=正查（成品→原料）；backward=反查（原料→成品）；full=双向/全链。</summary>
+        public string Mode { get; set; } = "full";
 
+        /// <summary>按批号查询时的批号文本。</summary>
         public string BatchNo { get; set; } = string.Empty;
+
+        /// <summary>按生产订单号查询时的订单号（与 BatchNo 二选一）。</summary>
+        public string? MoBillNo { get; set; }
 
         /// <summary>产品编码；正查可选，用于避免不同产品同批号串数据。</summary>
         public string? ProductCode { get; set; }

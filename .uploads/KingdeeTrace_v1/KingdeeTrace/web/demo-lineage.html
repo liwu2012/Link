@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>批次追溯血缘图 · 演示数据</title>
+<script src="https://unpkg.com/vis-network@9/standalone/umd/vis-network.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #0d1117; color: #e6edf3;
+  height: 100vh; display: flex; flex-direction: column;
+}
+.header {
+  background: linear-gradient(135deg, #161b22 0%, #1f2937 100%);
+  border-bottom: 1px solid #30363d;
+  padding: 14px 24px;
+  display: flex; align-items: center; gap: 20px;
+}
+.header h1 { font-size: 18px; font-weight: 600; color: #f0f6fc; }
+.header .subtitle { font-size: 13px; color: #8b949e; }
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 500;
+}
+.badge-lot { background: #1f6feb33; color: #58a6ff; border: 1px solid #1f6feb66; }
+.badge-mo  { background: #f0883e33; color: #f0883e; border: 1px solid #f0883e66; }
+.badge-bill{ background: #3fb95033; color: #3fb950; border: 1px solid #3fb95066; }
+
+.stats {
+  display: flex; gap: 16px; padding: 10px 24px;
+  background: #0d1117; border-bottom: 1px solid #1f2937;
+  font-size: 13px; color: #8b949e;
+}
+.stats span b { color: #f0f6fc; font-weight: 600; margin-right: 6px; }
+
+.main { flex: 1; display: flex; overflow: hidden; }
+
+#graph { flex: 1; background: #0d1117; }
+
+.sidebar {
+  width: 320px; background: #161b22; border-left: 1px solid #30363d;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.sidebar .panel-title {
+  padding: 14px 18px; font-size: 13px; font-weight: 600;
+  color: #8b949e; letter-spacing: 0.5px;
+  border-bottom: 1px solid #30363d; text-transform: uppercase;
+}
+.detail { flex: 1; padding: 18px; overflow-y: auto; }
+.detail .empty { color: #484f58; font-size: 13px; text-align: center; margin-top: 40px; }
+.detail .field { margin-bottom: 14px; }
+.detail .field .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.detail .field .value { font-size: 14px; color: #f0f6fc; font-family: "SF Mono", Consolas, monospace; word-break: break-all; }
+.detail .field .value.big { font-size: 18px; font-weight: 600; }
+.detail .section-title { font-size: 12px; color: #f0f6fc; margin: 18px 0 8px; padding-bottom: 6px; border-bottom: 1px dashed #30363d; }
+
+.legend {
+  padding: 14px 18px; border-top: 1px solid #30363d;
+}
+.legend-item { display: flex; align-items: center; gap: 10px; font-size: 12px; margin-bottom: 6px; color: #c9d1d9; }
+.legend-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.legend-line { width: 20px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+
+/* 节点样式 */
+.node-lot { background: radial-gradient(circle at 30% 30%, #58a6ff, #1f6feb); border-color: #58a6ff; }
+.node-mo  { background: radial-gradient(circle at 30% 30%, #f0883e, #db6d28); border-color: #f0883e; }
+.node-lot-finished { background: radial-gradient(circle at 30% 30%, #3fb950, #238636); border-color: #3fb950; }
+
+/* 悬浮提示 */
+.tooltip-box {
+  position: absolute; background: #1f2937; border: 1px solid #30363d;
+  border-radius: 6px; padding: 10px 14px; font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4); pointer-events: none; z-index: 1000;
+  max-width: 280px; display: none;
+}
+.tooltip-box .tip-title { font-weight: 600; color: #f0f6fc; margin-bottom: 4px; }
+.tooltip-box .tip-row { color: #8b949e; }
+.tooltip-box .tip-row b { color: #c9d1d9; }
+
+.actions {
+  padding: 10px 24px; background: #0d1117;
+  display: flex; gap: 10px; border-bottom: 1px solid #1f2937;
+}
+.btn {
+  background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
+  padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  transition: all 0.15s;
+}
+.btn:hover { background: #30363d; border-color: #58a6ff; color: #58a6ff; }
+.btn-primary { background: #1f6feb; border-color: #1f6feb; color: white; }
+.btn-primary:hover { background: #388bfd; border-color: #388bfd; color: white; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🔗 批次追溯血缘图</h1>
+  <span class="subtitle">工单 822011 · 分录 100154 · 入库单 SCRK00000008</span>
+  <span class="badge badge-mo">生产工单</span>
+  <span class="badge badge-lot">批号管理</span>
+  <span class="badge badge-bill">演示数据</span>
+</div>
+
+<div class="stats">
+  <span><b>1</b>成品批号</span>
+  <span><b>1</b>工单分录</span>
+  <span><b>6</b>原料批号</span>
+  <span><b>7</b>节点 · 6 条边</span>
+  <span style="margin-left:auto; color:#484f58;">演示数据源：工单 100154 的真实回填结果</span>
+</div>
+
+<div class="actions">
+  <button class="btn btn-primary" onclick="centerOnFinished()">🎯 聚焦成品</button>
+  <button class="btn" onclick="showAll()">👁 显示全部</button>
+  <button class="btn" onclick="showUpstream()">⬅ 只看上游原料</button>
+  <button class="btn" onclick="showDownstream()">➡ 只看下游成品</button>
+</div>
+
+<div class="main">
+  <div id="graph"></div>
+
+  <div class="sidebar">
+    <div class="panel-title">节点详情</div>
+    <div class="detail" id="detail">
+      <div class="empty">👆 点击图中节点查看详情</div>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#3fb950;border:2px solid #3fb950"></div>成品批号（下游）</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f0883e;border:2px solid #f0883e"></div>生产工单分录</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#58a6ff;border:2px solid #58a6ff"></div>原料批号（上游）</div>
+      <div class="legend-item"><div class="legend-line" style="background:#f0883e"></div>入库边（工单→成品）</div>
+      <div class="legend-item"><div class="legend-line" style="background:#58a6ff"></div>领料边（原料→工单）</div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip-box" id="tooltip"></div>
+
+<script>
+// ============ 真实数据（来自工单 100154 的回填 SQL 结果） ============
+const DATA = {
+  // 成品节点
+  finished_lot: {
+    id: 'lot_finished', type: 'LOT',
+    label: 'Y2201140415A0155',
+    sub: '成品批号',
+    lot_no: 'Y2201140415A0155',
+    lot_id: 147060,
+    material_code: '03040008',
+    material_name: 'HAVOLINE XLC 50/50(OF01)-BULK',
+    qty: 28600,
+    unit: 'KG',
+    product_type: 1,
+    product_type_text: '主产品',
+    bill_no: 'SCRK00000008',
+    bill_type: 'PRD_INSTOCK',
+    appr_date: '2022-01-15 12:20'
+  },
+  // 工单分录
+  mo: {
+    id: 'mo_100154', type: 'MO',
+    label: '822011 / 100154',
+    sub: '生产工单分录',
+    mo_bill_no: '822011',
+    mo_entry_id: 100154,
+    material_code: '03040008',
+    material_name: 'HAVOLINE XLC 50/50(OF01)-BULK',
+    qty: 28600,
+    product_type: 1,
+    bill_type: 'PRD_MO'
+  },
+  // 6 个原料批号（按数量排序）
+  raw_materials: [
+    { id:'lot_raw_1', lot_no:'DFZC220113',    lot_id:146435, material_code:'070013', material_name:'Water For Antifreeze',               qty:13058, bill_no:'SOUT00000013', mo_bill_no:'822011', label:'DFZC220113', sub:'原料' },
+    { id:'lot_raw_2', lot_no:'傲而特20211112', lot_id:139294, material_code:'020370', material_name:'Mono Ethylene Glycol',                qty:11296, bill_no:'SOUT00000013', mo_bill_no:'822011', label:'傲而特20211112', sub:'原料' },
+    { id:'lot_raw_3', lot_no:'傲而特1156676-211216-231027', lot_id:139327, material_code:'020424', material_name:'Havoline XLB(CL00)',      qty:3764.6, bill_no:'SOUT00000013', mo_bill_no:'822011', label:'傲而特1156676', sub:'原料' },
+    { id:'lot_raw_4', lot_no:'DFZC220112',    lot_id:144776, material_code:'070013', material_name:'Water For Antifreeze',               qty:483,   bill_no:'SOUT00000013', mo_bill_no:'822011', label:'DFZC220112', sub:'原料' },
+    { id:'lot_raw_5', lot_no:'傲而特PR21001100-210924-230820', lot_id:139304, material_code:'020381', material_name:'Dye Acid Yellow73',       qty:0.98,  bill_no:'SOUT00000013', mo_bill_no:'822011', label:'傲而特PR21001100', sub:'原料' },
+    { id:'lot_raw_6', lot_no:'1303239002-200612-220514', lot_id:139302, material_code:'020380', material_name:'Dye Acid Red 52 LIQUID/RED 1887', qty:0.49, bill_no:'SOUT00000013', mo_bill_no:'822011', label:'1303239002-2006', sub:'原料' }
+  ]
+};
+
+// ============ 构建节点和边 ============
+const nodes = [
+  // 原料节点（左侧）
+  ...DATA.raw_materials.map((m, i) => ({
+    id: m.id,
+    label: m.label,
+    title: `<b>${m.lot_no}</b><br>物料: ${m.material_code} ${m.material_name}<br>发料量: ${m.qty}`,
+    color: { background: '#58a6ff', border: '#79c0ff' },
+    font: { color: '#e6edf3', size: 13, face: 'SF Mono, Consolas, monospace' },
+    shape: 'dot',
+    size: 16 + Math.min(20, Math.log10(Math.max(1, m.qty)) * 5),  // 数量越大节点越大
+    x: -400, y: (i - 2.5) * 110,
+    physics: false,
+    fixed: { y: true }
+  })),
+  // 工单节点（中间）
+  {
+    id: DATA.mo.id,
+    label: DATA.mo.label,
+    title: `<b>生产工单分录</b><br>工单号: ${DATA.mo.mo_bill_no}<br>分录ID: ${DATA.mo.mo_entry_id}<br>成品物料: ${DATA.mo.material_code}`,
+    color: { background: '#f0883e', border: '#ffa657' },
+    font: { color: '#f0f6fc', size: 15, face: 'SF Mono, Consolas, monospace', bold: true },
+    shape: 'diamond',
+    size: 28,
+    x: 0, y: 0,
+    physics: false,
+    fixed: true,
+    borderWidth: 3,
+    shadow: { enabled: true, color: 'rgba(240,136,62,0.4)' }
+  },
+  // 成品节点（右侧）
+  {
+    id: DATA.finished_lot.id,
+    label: DATA.finished_lot.lot_no,
+    title: `<b>${DATA.finished_lot.lot_no}</b><br>物料: ${DATA.finished_lot.material_code} ${DATA.finished_lot.material_name}<br>入库量: ${DATA.finished_lot.qty} ${DATA.finished_lot.unit}<br>入库单: ${DATA.finished_lot.bill_no}`,
+    color: { background: '#3fb950', border: '#56d364' },
+    font: { color: '#f0f6fc', size: 15, face: 'SF Mono, Consolas, monospace', bold: true },
+    shape: 'star',
+    size: 32,
+    x: 400, y: 0,
+    physics: false,
+    fixed: true,
+    borderWidth: 3,
+    shadow: { enabled: true, color: 'rgba(63,185,80,0.5)' }
+  }
+];
+
+const edges = [
+  // 领料边（原料 → 工单）
+  ...DATA.raw_materials.map((m, i) => ({
+    from: m.id, to: DATA.mo.id,
+    label: m.qty + '',
+    font: { color: '#79c0ff', size: 11, strokeWidth: 3, strokeColor: '#0d1117' },
+    color: { color: '#58a6ff', highlight: '#79c0ff' },
+    width: 1.5 + Math.min(4, Math.log10(Math.max(1, m.qty)) * 1.2),
+    arrows: { to: { enabled: true, scaleFactor: 0.8 } },
+    smooth: { type: 'curvedCW', roundness: 0.15 }
+  })),
+  // 入库边（工单 → 成品）
+  {
+    from: DATA.mo.id, to: DATA.finished_lot.id,
+    label: DATA.finished_lot.qty + ' ' + DATA.finished_lot.unit,
+    font: { color: '#f0883e', size: 12, bold: true, strokeWidth: 3, strokeColor: '#0d1117' },
+    color: { color: '#f0883e', highlight: '#ffa657' },
+    width: 3,
+    arrows: { to: { enabled: true, scaleFactor: 1.2 } },
+    smooth: { type: 'curvedCW', roundness: 0 }
+  }
+];
+
+// ============ 渲染 ============
+const container = document.getElementById('graph');
+const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+const options = {
+  nodes: { shapeProperties: { borderDashes: false } },
+  edges: { smooth: true, hoverWidth: 2 },
+  physics: { enabled: false },
+  interaction: { hover: true, dragNodes: false, zoomView: true, dragView: true },
+  background: { color: '#0d1117' }
+};
+const network = new vis.Network(container, data, options);
+
+// 点击节点 → 显示详情
+const detailEl = document.getElementById('detail');
+const tooltip = document.getElementById('tooltip');
+
+network.on('click', params => {
+  if (!params.nodes.length) return;
+  const id = params.nodes[0];
+  const node = nodes.find(n => n.id === id);
+  renderDetail(id, node);
+});
+
+function renderDetail(id, node) {
+  let html = '';
+  if (id === DATA.finished_lot.id) {
+    const d = DATA.finished_lot;
+    html = `
+      <div class="field"><div class="label">成品批号</div><div class="value big" style="color:#56d364;">${d.lot_no}</div></div>
+      <div class="field"><div class="label">批号内码</div><div class="value">${d.lot_id}</div></div>
+      <div class="field"><div class="label">物料编码</div><div class="value">${d.material_code}</div></div>
+      <div class="field"><div class="label">物料名称</div><div class="value">${d.material_name}</div></div>
+      <div class="field"><div class="label">产出类型</div><div class="value" style="color:#3fb950;">${d.product_type_text} (${d.product_type})</div></div>
+      <div class="field"><div class="label">入库数量</div><div class="value big">${d.qty.toLocaleString()} ${d.unit}</div></div>
+      <div class="section-title">单据信息</div>
+      <div class="field"><div class="label">单据类型</div><div class="value">${d.bill_type}</div></div>
+      <div class="field"><div class="label">单据编号</div><div class="value" style="color:#8b949e;">${d.bill_no}</div></div>
+      <div class="field"><div class="label">审核日期</div><div class="value">${d.appr_date}</div></div>
+    `;
+  } else if (id === DATA.mo.id) {
+    const m = DATA.mo;
+    html = `
+      <div class="field"><div class="label">生产工单号</div><div class="value big" style="color:#f0883e;">${m.mo_bill_no}</div></div>
+      <div class="field"><div class="label">工单分录 ID</div><div class="value">${m.mo_entry_id}</div></div>
+      <div class="field"><div class="label">成品物料</div><div class="value">${m.material_code} ${m.material_name}</div></div>
+      <div class="field"><div class="label">计划数量</div><div class="value big">${m.qty.toLocaleString()}</div></div>
+      <div class="section-title">关联单据</div>
+      <div class="field"><div class="label">入库单</div><div class="value" style="color:#56d364;">SCRK00000008</div></div>
+      <div class="field"><div class="label">领料单</div><div class="value" style="color:#79c0ff;">SOUT00000013</div></div>
+      <div class="section-title">上游原料 (6 种)</div>
+      ${DATA.raw_materials.map(r => `<div class="field" style="margin-bottom:6px;"><div class="label" style="color:#8b949e;font-size:10px;">${r.material_code}</div><div class="value" style="font-size:13px;">${r.lot_no} <span style="color:#79c0ff;">${r.qty}</span></div></div>`).join('')}
+    `;
+  } else {
+    const m = DATA.raw_materials.find(x => x.id === id);
+    if (!m) return;
+    const total = DATA.raw_materials.reduce((a,b) => a + b.qty, 0);
+    const pct = ((m.qty / total) * 100).toFixed(1);
+    html = `
+      <div class="field"><div class="label">原料批号</div><div class="value big" style="color:#79c0ff;">${m.lot_no}</div></div>
+      <div class="field"><div class="label">批号内码</div><div class="value">${m.lot_id}</div></div>
+      <div class="field"><div class="label">物料编码</div><div class="value">${m.material_code}</div></div>
+      <div class="field"><div class="label">物料名称</div><div class="value">${m.material_name}</div></div>
+      <div class="field"><div class="label">发料数量</div><div class="value big">${m.qty.toLocaleString()}</div></div>
+      <div class="field"><div class="label">占总投料比例</div><div class="value" style="color:#f0883e;">${pct}%</div></div>
+      <div class="section-title">关联单据</div>
+      <div class="field"><div class="label">领料单</div><div class="value" style="color:#79c0ff;">${m.bill_no}</div></div>
+      <div class="field"><div class="label">生产工单</div><div class="value" style="color:#f0883e;">${m.mo_bill_no}</div></div>
+    `;
+  }
+  detailEl.innerHTML = html;
+}
+
+// ============ 工具栏 ============
+function centerOnFinished() {
+  network.focus(DATA.finished_lot.id, { scale: 1.5, animation: true });
+  network.selectNodes([DATA.finished_lot.id]);
+  renderDetail(DATA.finished_lot.id, nodes.find(n => n.id === DATA.finished_lot.id));
+}
+function showAll() {
+  network.fit({ animation: true, padding: 60 });
+}
+function showUpstream() {
+  const raw_ids = DATA.raw_materials.map(r => r.id);
+  network.selectNodes(raw_ids);
+  network.focus(raw_ids[0], { scale: 1.3, animation: true });
+}
+function showDownstream() {
+  network.selectNodes([DATA.finished_lot.id, DATA.mo.id]);
+  network.focus(DATA.finished_lot.id, { scale: 1.5, animation: true });
+}
+
+// 初始：聚焦成品
+setTimeout(centerOnFinished, 300);
+</script>
+</body>
+</html>

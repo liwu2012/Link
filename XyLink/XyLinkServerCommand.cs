@@ -102,13 +102,20 @@ namespace XyLink
         [Category("查询参数")]
         [FormulaProperty]
         [DisplayName("查询模式")]
-        [Description("forward=产品批号正查；backward=原料批号反查；full=双向全链。")]
-        public object Mode { get; set; } = "forward";
+        [Description("forward=正查（成品→原料）；backward=反查（原料→成品）；full=双向全链。")]
+        public object Mode { get; set; } = "full";
 
         [Category("查询参数")]
         [FormulaProperty]
         [DisplayName("批号")]
+        [Description("按批号查询时填写。批号与生产订单号二选一。")]
         public object BatchNo { get; set; } = string.Empty;
+
+        [Category("查询参数")]
+        [FormulaProperty]
+        [DisplayName("生产订单号")]
+        [Description("按生产订单号查询时填写（自动双向展开投入与产出）。批号与生产订单号二选一。")]
+        public object MoBillNo { get; set; } = string.Empty;
 
         [Category("查询参数")]
         [FormulaProperty]
@@ -135,12 +142,12 @@ namespace XyLink
         public object MaxNodes { get; set; } = 800;
 
         // ---------------------------------------------------------------
-        // 字段映射
+        // 字段映射（已弃用，保留以兼容旧配置）
         // ---------------------------------------------------------------
 
-        [Category("字段映射")]
+        [Category("字段映射（已弃用）")]
         [DisplayName("映射 JSON")]
-        [Description("可选。为空时使用默认 PRD_INSTOCK / PRD_MO / PRD_PickMtrl / STK_InStock / BD_Supplier 映射。")]
+        [Description("当前版本直接调用金蝶血缘 WebAPI，无需字段映射。此属性保留以兼容旧配置，可留空。")]
         public string MappingJson { get; set; } = string.Empty;
 
         [Category("输出")]
@@ -151,8 +158,9 @@ namespace XyLink
 
         public async Task<ExecuteResult> ExecuteAsync(IServerCommandExecuteContext dataContext)
         {
-            var mode = await EvaluateStringAsync(dataContext, Mode) ?? "forward";
+            var mode = await EvaluateStringAsync(dataContext, Mode) ?? "full";
             var batchNo = await EvaluateStringAsync(dataContext, BatchNo) ?? string.Empty;
+            var moBillNo = await EvaluateStringAsync(dataContext, MoBillNo);
             var productCode = await EvaluateStringAsync(dataContext, ProductCode);
             var materialCode = await EvaluateStringAsync(dataContext, MaterialCode);
             var maxDepth = await EvaluateIntAsync(dataContext, MaxDepth, 6);
@@ -162,30 +170,26 @@ namespace XyLink
             {
                 Mode = mode,
                 BatchNo = (batchNo ?? string.Empty).Trim(),
+                MoBillNo = string.IsNullOrWhiteSpace(moBillNo) ? null : moBillNo.Trim(),
                 ProductCode = string.IsNullOrWhiteSpace(productCode) ? null : productCode.Trim(),
                 MaterialCode = string.IsNullOrWhiteSpace(materialCode) ? null : materialCode.Trim(),
                 MaxDepth = maxDepth,
                 MaxNodes = maxNodes
             };
 
-            if (string.IsNullOrWhiteSpace(query.BatchNo))
+            if (string.IsNullOrWhiteSpace(query.BatchNo) && string.IsNullOrWhiteSpace(query.MoBillNo))
             {
-                WriteResult(dataContext, BuildError(query, 1001, "请输入批号。"));
+                WriteResult(dataContext, BuildError(query, 1001, "请输入批号或生产订单号。"));
                 return new ExecuteResult();
             }
 
             try
             {
                 var options = BuildOptions();
-                var mappingWarnings = new List<string>();
-                var mapping = KingdeeMapping.FromJson(MappingJson, out mappingWarnings);
 
                 using var client = new KingdeeClient(options);
-                var dataSource = new KingdeeLineageDataSource(client, mapping);
+                var dataSource = new KingdeeTraceLineageDataSource(client);
                 var result = await dataSource.QueryAsync(query);
-
-                if (mappingWarnings.Count > 0)
-                    result.Warnings.InsertRange(0, mappingWarnings);
 
                 WriteResult(dataContext, result);
             }

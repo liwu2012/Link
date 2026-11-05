@@ -861,6 +861,70 @@ namespace XyLink.Lineage
                    body.Contains("not logged in", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// 调用金蝶自定义血缘追溯 WebAPI（KingdeeTrace.WebApi.TraceApiService.Query）。
+        /// 该接口在金蝶端已完成 BFS、节点翻译，直接返回 nodes + edges。
+        /// </summary>
+        /// <param name="type">"LOT" 按批号，"MO" 按生产订单号。</param>
+        /// <param name="no">批号文本或生产订单号。</param>
+        /// <param name="direction">0=双向，1=正查（成品→原料），2=反查（原料→成品）。</param>
+        /// <param name="depth">展开层数，1～20。</param>
+        /// <param name="cancellationToken"></param>
+        /// <returns>JsonDocument，结构：{ ok, message, truncated, nodes:[{key,type,no,material,productType,level,billType,billNo,qty}], edges:[{from,to,qty,billType,billNo,billId,productType}] }。调用方负责 Dispose。</returns>
+        public async Task<JsonDocument> CallTraceApiAsync(
+            string type,
+            string no,
+            int direction,
+            int depth,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+
+            if (string.IsNullOrWhiteSpace(no))
+                throw new ArgumentException("批号或工单号不能为空。", nameof(no));
+
+            var t = string.IsNullOrWhiteSpace(type) ? "LOT" : type.Trim().ToUpperInvariant();
+            if (t != "LOT" && t != "MO")
+                throw new ArgumentException("type 只能是 LOT 或 MO。", nameof(type));
+
+            var dir = direction < 0 ? 0 : direction > 2 ? 0 : direction;
+            var d = depth < 1 ? 1 : depth > 20 ? 20 : depth;
+
+            // 自定义 WebAPI 的参数形态：{"parameters":[{...}]}（对象数组，不是 JSON 字符串）
+            var payload = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["parameters"] = new object[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["type"] = t,
+                        ["no"] = no.Trim(),
+                        ["direction"] = dir,
+                        ["depth"] = d
+                    }
+                }
+            });
+
+            var uri = _options.BuildUri("KingdeeTrace.WebApi.TraceApiService.Query");
+            var body = await PostWithSessionRetryAsync(uri, payload, cancellationToken)
+                .ConfigureAwait(false);
+
+            var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("ok", out var okEl) &&
+                okEl.ValueKind == JsonValueKind.False)
+            {
+                var msg = root.TryGetProperty("message", out var msgEl)
+                    ? msgEl.GetString() ?? "金蝶血缘接口返回失败。"
+                    : "金蝶血缘接口返回失败。";
+                doc.Dispose();
+                throw new KingdeeApiException(msg);
+            }
+
+            return doc;
+        }
+
         private static string Truncate(string value, int maxLength)
         {
             if (string.IsNullOrEmpty(value) || value.Length <= maxLength)

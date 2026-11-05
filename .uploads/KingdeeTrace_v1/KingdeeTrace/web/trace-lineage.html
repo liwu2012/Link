@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>批次追溯 · 涟漪扩散图</title>
+<script src="vis-network.min.js"></script>
+<script>if(typeof vis==='undefined'){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/vis-network@9.1.2/standalone/umd/vis-network.min.js';document.head.appendChild(s)}</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#060a10;color:#c9d1d9;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:#21262d;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#30363d}
+
+.header{background:linear-gradient(180deg,#0b1120,#060a10);border-bottom:1px solid #1f2937;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0}
+.header h1{font-size:16px;font-weight:600;background:linear-gradient(90deg,#ff7b72,#ffa657,#58a6ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.search-bar{display:flex;align-items:center;gap:6px;background:#0d1117;border:1px solid #1f2937;border-radius:8px;padding:4px 10px}
+.search-bar input{background:transparent;border:none;color:#e6edf3;font-size:13px;width:180px;outline:none}
+.search-bar select{background:#161b22;border:1px solid #1f2937;color:#c9d1d9;padding:4px 8px;border-radius:5px;font-size:12px}
+.btn-q{background:linear-gradient(180deg,#1f6feb,#1a5fd0);border:none;color:white;padding:6px 18px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500}
+.btn-q:hover{background:linear-gradient(180deg,#388bfd,#1f6feb)}
+.btn-s{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+.btn-s:hover{background:#30363d;color:#fff}
+.btn-s.on{border-color:#d29922;color:#d29922}
+.tag-demo{font-size:10px;padding:3px 8px;border-radius:10px;background:#21262d;border:1px solid #30363d;color:#8b949e;white-space:nowrap}
+.tag-live{font-size:10px;padding:3px 8px;border-radius:10px;background:#0f2a1a;border:1px solid #238636;color:#3fb950;white-space:nowrap}
+.tag-err{font-size:10px;padding:3px 8px;border-radius:10px;background:#3d1418;border:1px solid #da3633;color:#ff7b72;white-space:nowrap}
+
+.depth-bar{display:flex;gap:2px;padding:8px 20px;background:#060a10;border-bottom:1px solid #1f2937}
+.depth-bar label{padding:7px 14px;background:#0d1117;border:1px solid #1f2937;border-radius:6px;cursor:pointer;font-size:12px;color:#8b949e}
+.depth-bar label:hover{color:#c9d1d9}
+.depth-bar input{display:none}
+.depth-bar input:checked+span{color:#ffa657;border-color:#ffa657;background:#161b22;box-shadow:0 0 0 1px #ffa65744}
+.depth-bar span{display:block}
+
+.stats{padding:6px 20px;background:#060a10;border-bottom:1px solid #1f2937;font-size:11px;color:#6e7681;display:flex;gap:18px}
+.stats b{color:#c9d1d9;font-weight:600}
+.stats .r{margin-left:auto}
+
+.main{flex:1;display:flex;overflow:hidden}
+#graph{flex:1;background:#060a10;position:relative}
+
+/* 涟漪背景 */
+#graph::before{content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(circle at center, transparent 0%, transparent 80px, #0d1f3a33 80px, #0d1f3a33 81px, transparent 81px),
+    radial-gradient(circle at center, transparent 0%, transparent 180px, #0d1f3a22 180px, #0d1f3a22 181px, transparent 181px),
+    radial-gradient(circle at center, transparent 0%, transparent 300px, #0d1f3a11 300px, #0d1f3a11 301px, transparent 301px);
+  pointer-events:none}
+#graph::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,transparent 40%,rgba(0,0,0,.6) 100%);pointer-events:none}
+
+.sidebar{width:320px;background:#0b0f14;border-left:1px solid #1f2937;display:flex;flex-direction:column;overflow:hidden}
+.ph{padding:12px 16px;font-size:10px;color:#6e7681;text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid #1f2937}
+.detail{flex:1;padding:16px;overflow-y:auto}
+.detail-empty{color:#484f58;font-size:12px;text-align:center;margin-top:48px;line-height:1.8}
+.detail-empty .ic{font-size:40px;margin-bottom:12px;opacity:.5;display:block}
+
+.kv{margin-bottom:12px}
+.kv .k{font-size:10px;color:#6e7681;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}
+.kv .v{font-size:13px;color:#e6edf3;font-family:"SF Mono",Consolas,monospace;word-break:break-all;line-height:1.4}
+.kv .v.big{font-size:15px;font-weight:600}
+.kv .v.g{color:#56d364}.kv .v.b{color:#79c0ff}.kv .v.o{color:#ffa657}.kv .v.r{color:#ff7b72}.kv .v.gray{color:#8b949e}.kv .v.w{color:#d29922}
+
+.div{height:1px;background:#1f2937;margin:12px 0}
+
+.export{padding:14px;border-top:1px solid #1f2937;background:#0b0f14}
+.export .t{font-size:10px;color:#6e7681;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
+.export .btn{width:100%;padding:9px;border-radius:6px;background:linear-gradient(180deg,#238636,#1a7f37);color:white;border:none;cursor:pointer;font-size:12px;font-weight:500}
+.export .btn:hover{background:linear-gradient(180deg,#2ea043,#238636)}
+.export .btn:disabled{background:#21262d;color:#484f58;cursor:not-allowed}
+
+.tip{position:fixed;background:rgba(13,17,23,.96);border:1px solid #30363d;border-radius:8px;padding:14px;box-shadow:0 16px 48px rgba(0,0,0,.6);pointer-events:none;z-index:9999;min-width:260px;max-width:340px;display:none;font-size:12px;backdrop-filter:blur(8px);animation:tipIn .1s ease-out}
+@keyframes tipIn{from{opacity:0;transform:translateY(3px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+.tip .th{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #1f2937}
+.tip .badge{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.tip .tt{font-size:13px;font-weight:600;color:#f0f6fc;font-family:"SF Mono",Consolas,monospace;word-break:break-all}
+.tip .tg{font-size:10px;color:#6e7681;text-transform:uppercase;letter-spacing:.6px;margin-left:auto;white-space:nowrap}
+.tip-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0}
+.tip-row .k{color:#6e7681;font-size:11px;white-space:nowrap}
+.tip-row .v{color:#e6edf3;font-family:"SF Mono",Consolas,monospace;font-size:12px;text-align:right;word-break:break-all;max-width:62%}
+.tip-row .v.b{color:#79c0ff}.tip-row .v.g{color:#56d364}.tip-row .v.o{color:#ffa657}.tip-row .v.w{color:#d29922}
+
+.leg{padding:10px 16px;border-top:1px solid #1f2937;font-size:11px;color:#6e7681;display:flex;gap:16px;flex-wrap:wrap}
+.leg-item{display:flex;align-items:center;gap:6px}
+.leg-d{width:14px;height:14px;border-radius:50%;border:1px solid}
+.leg-diamond{width:12px;height:12px;transform:rotate(45deg);border-radius:1px}
+.leg-box{width:14px;height:14px;border-radius:2px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🌀 批次追溯 · 涟漪扩散</h1>
+  <div class="search-bar">
+    <select id="qT"><option value="LOT">批号</option><option value="MO">工单号</option></select>
+    <select id="qD"><option value="0">双向</option><option value="1">成品→原料</option><option value="2">原料→成品</option></select>
+    <input id="qI" placeholder="如：傲而特20211112" value="傲而特20211112">
+    <button class="btn-q" onclick="go()">🔍 查询</button>
+  </div>
+  <button class="btn-s" id="btnShared" onclick="goShared()">📦 共享投料示例</button>
+  <span id="apiTag" class="tag-demo">演示数据</span>
+</div>
+
+<div class="depth-bar">
+  <label><input type="radio" name="dp" value="1"><span>🌱 1 跳（原料→工单）</span></label>
+  <label><input type="radio" name="dp" value="2" checked><span>🌀 2 跳（原料→工单→成品）</span></label>
+  <label><input type="radio" name="dp" value="3"><span>🔗 3 跳（含上下游扩散）</span></label>
+  <label style="margin-left:auto"><input type="radio" name="dp" value="all"><span>🌐 全链路</span></label>
+</div>
+
+<div class="stats">
+  <span>中心目标: <b id="sT">傲而特20211112</b></span>
+  <span>涟漪节点: <b id="sN">0</b></span>
+  <span>传播路径: <b id="sE">0</b></span>
+  <span class="r" id="sR">真实回填数据</span>
+</div>
+
+<div class="main">
+  <div id="graph"></div>
+  <div class="sidebar">
+    <div class="ph">🎯 节点详情 <span style="color:#484f58">点击或 hover</span></div>
+    <div class="detail" id="det"><div class="detail-empty"><span class="ic">🔬</span>点击涟漪中任意节点<br>查看完整追溯信息</div></div>
+    <div class="export"><div class="t">📋 导出</div><button class="btn" id="ex" onclick="doCSV()" disabled>⬇️ 导出追溯列表 CSV</button></div>
+    <div class="leg">
+      <div class="leg-item"><div class="leg-d" style="background:#ff7b72;border-color:#ff7b72"></div>中心目标</div>
+      <div class="leg-item"><div class="leg-d" style="background:#58a6ff;border-color:#58a6ff"></div>原料/上游</div>
+      <div class="leg-item"><div class="leg-d leg-diamond" style="background:#f0883e;border-color:#f0883e"></div>生产工单</div>
+      <div class="leg-item"><div class="leg-d leg-box" style="background:#3fb950;border-color:#3fb950"></div>成品/下游</div>
+      <div class="leg-item"><div class="leg-d" style="background:#a371f7;border-color:#d2a8ff"></div>入库/出库单据</div>
+      <div class="leg-item"><div class="leg-d" style="background:transparent;border:1px dashed #d29922"></div>共享投料</div>
+    </div>
+  </div>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+// ==================================================================
+// 真实接口配置（DLL 部署 + 注册 WebAPI 后改成 enabled:true）
+// 需要先登录 K3Cloud，浏览器带 Cookie 访问才拿得到会话
+// ==================================================================
+const API_CONFIG = {
+  enabled: false,
+  url: "/k3cloud/Kingdee.BOS.WebApi.ServicesStub.KingdeeTrace.WebApi.TraceApiService.Query.common.kdsvc",
+  timeout: 20000
+};
+
+// ==================================================================
+// 数据集（全部来自真实回填 / MCP 查询结果）
+// ==================================================================
+
+// 案例 1：一个原料批号 傲而特20211112 → 8 个工单 → 8 个成品批号
+const W1 = [
+  {mid:"mo_100151", mo:"822010", entry:100151, pick:"SOUT00000012", qty:2361},
+  {mid:"mo_100154", mo:"822011", entry:100154, pick:"SOUT00000013", qty:11296},
+  {mid:"mo_100141", mo:"822003", entry:100141, pick:"SOUT00000016", qty:5310},
+  {mid:"mo_100029", mo:"822004", entry:100029, pick:"SOUT00000017", qty:10002},
+  {mid:"mo_100167", mo:"822006", entry:100167, pick:"SOUT00000018", qty:1585},
+  {mid:"mo_100168", mo:"822007", entry:100168, pick:"SOUT00000019", qty:1851},
+  {mid:"mo_100176", mo:"822009", entry:100176, pick:"SOUT00000021", qty:35},
+  {mid:"mo_100253", mo:"TY22059", entry:100253, pick:"SOUT00000075", qty:100}
+];
+const W2 = [
+  {mid:"mo_100151", fa_id:"fa_147061", fa_lot:"Y2201130415A0155", fa_mat:"03040008", fa_name:"HAVOLINE XLC 50/50(OF01)-BULK", fa_qty:28700, in_bill:"SCRK00000009", appr:"2022-01-15"},
+  {mid:"mo_100154", fa_id:"fa_147060", fa_lot:"Y2201140415A0155", fa_mat:"03040008", fa_name:"HAVOLINE XLC 50/50(OF01)-BULK", fa_qty:28600, in_bill:"SCRK00000008", appr:"2022-01-15"},
+  {mid:"mo_100141", fa_id:"fa_147099", fa_lot:"Y2201040415A0396", fa_mat:"03040014", fa_name:"COOLELF SUPRA +B2 50/50 (YF08)-BULK", fa_qty:17904.8, in_bill:"SCRK00000011", appr:"2022-01-15"},
+  {mid:"mo_100029", fa_id:"fa_147104", fa_lot:"Y2201060415A0573", fa_mat:"03040035", fa_name:"COOLANT BSB3.5 +B2 -45°C(GF12)-BULK", fa_qty:18100, in_bill:"SCRK00000015", appr:"2022-01-15"},
+  {mid:"mo_100167", fa_id:"fa_147100", fa_lot:"Y2201040411A0395", fa_mat:"03040012", fa_name:"Coolelf Supra WT +B2 -40℃ (YF08)-BULK", fa_qty:5674.4, in_bill:"SCRK00000012", appr:"2022-01-15"},
+  {mid:"mo_100168", fa_id:"fa_147101", fa_lot:"Y2201040412A0395", fa_mat:"03040012", fa_name:"Coolelf Supra WT +B2 -40℃ (YF08)-BULK", fa_qty:5574.4, in_bill:"SCRK00000013", appr:"2022-01-15"},
+  {mid:"mo_100176", fa_id:"fa_147105", fa_lot:"Y2201060415B0586", fa_mat:"03040028", fa_name:"HAVOLINE XLC +B2 50/50(OF01)-BULK", fa_qty:11207.2, in_bill:"SCRK00000016", appr:"2022-01-15"},
+  {mid:"mo_100253", fa_id:"fa_147673", fa_lot:"Y2201180415A0155", fa_mat:"03040008", fa_name:"HAVOLINE XLC 50/50(OF01)-BULK", fa_qty:28600, in_bill:"SCRK00000092", appr:"2022-01-18"}
+];
+
+// 案例 2（真实）：工单 LTY22031004 / 分录 100893，2 种原料 → 分 3 批入库同一成品
+// 投料 1,776 + 95.2 = 1,871.2；产出 649 + 610.5 + 610.5 = 1,870（差值为损耗）
+const S_MO   = {id:"mo_100893", mo:"LTY22031004", entry:100893};
+const S_RAWS = [
+  {id:"lot_227717", lot_id:227717, lot_no:"瑞孚H135M20016x2202-220310-250225", mat_code:"0102010001", mat_name:"SHR 2500",  qty:1776,  pick:"SOUT00000538"},
+  {id:"lot_227703", lot_id:227703, lot_no:"瑞孚20220201K-220310-240206",     mat_code:"020049",     mat_name:"SHR 90103", qty:95.2,  pick:"SOUT00000538"}
+];
+const S_FAS  = [
+  {id:"lot_227859", lot_id:227859, lot_no:"Y220311LA1044", mat_code:"0302040011", mat_name:"ZEROL AIR 32KT-BULK", qty:649,   in_bill:"SCRK00000674", appr:"2022-03-14"},
+  {id:"lot_228060", lot_id:228060, lot_no:"Y220314LA1044", mat_code:"0302040011", mat_name:"ZEROL AIR 32KT-BULK", qty:610.5, in_bill:"SCRK00000677", appr:"2022-03-14"},
+  {id:"lot_228196", lot_id:228196, lot_no:"Y220315LA1044", mat_code:"0302040011", mat_name:"ZEROL AIR 32KT-BULK", qty:610.5, in_bill:"SCRK00000695", appr:"2022-03-15"}
+];
+
+// ==================================================================
+// 共享投料标记：同一工单产出 >1 个成品批号时，投料被这些成品共用
+// 只做标记（不按比例分摊），追溯结论是“可能含”，不是精确配方
+// ==================================================================
+function markShared(nodes, edges, moIds){
+  const outCount = {};
+  edges.forEach(e=>{ if(e.dir==="B") outCount[e.from]=(outCount[e.from]||0)+1; });
+  moIds.forEach(mid=>{
+    const k = outCount[mid] || 0;
+    if(k <= 1) return;
+    nodes.forEach(n=>{
+      if(n.id===mid){
+        n.shared = true;
+        n.d.shared = `该工单产出 ${k} 个成品批号，投料由这 ${k} 批共同消耗`;
+      }
+      if(n.type==="FA"){
+        const hit = edges.some(e=>e.from===mid && e.to===n.id);
+        if(hit){
+          n.shared = true;
+          n.d.shared = `与另外 ${k-1} 个成品批号共用同一工单投料，无法精确拆分`;
+        }
+      }
+    });
+    edges.forEach(e=>{
+      if(e.from===mid || e.to===mid){
+        e.shared = true;
+        e.sharedNote = `投料由 ${k} 个成品批号共用`;
+      }
+    });
+  });
+}
+
+function railWidth(qty){ return 1.2 + Math.min(4, Math.log10(Math.max(1, qty))); }
+
+// 案例 1 布局：中心原料 → 工单环 → 成品环
+function buildMain(depth){
+  const nodes = [], edges = [];
+  nodes.push({id:"c_raw", label:"傲而特20211112", type:"CENTER", x:0, y:0,
+    d:{t:"原料批号(中心)", lot_id:139294, lot_no:"傲而特20211112", mat_code:"020370",
+       mat_name:"Mono Ethylene Glycol", qty:"23,611(合计)",
+       bills:W1.map(x=>x.pick).join(", ")}});
+
+  const n1 = W1.length;
+  W1.forEach((w,i)=>{
+    const ang = -Math.PI/2 + i*2*Math.PI/n1;
+    nodes.push({id:w.mid, label:w.mo+"/"+w.entry, type:"MO",
+      x:Math.cos(ang)*220, y:Math.sin(ang)*220,
+      d:{t:"生产工单", bill:w.mo, entry:w.entry, pick:w.pick, qty:w.qty.toLocaleString()}});
+    edges.push({from:"c_raw", to:w.mid, label:"领料 "+w.qty.toLocaleString(), dir:"F",
+      bill:w.pick, width:railWidth(w.qty)});
+  });
+
+  if(depth >= 2){
+    W2.forEach(w=>{
+      const moIdx = W1.findIndex(x=>x.mid===w.mid);
+      const moAng = -Math.PI/2 + moIdx*2*Math.PI/n1;
+      const sibs = W2.filter(x=>x.mid===w.mid);
+      const fi = sibs.findIndex(x=>x.fa_id===w.fa_id);
+      const off = (fi - (sibs.length-1)/2) * 40;
+      nodes.push({id:w.fa_id, label:w.fa_lot, type:"FA",
+        x:Math.cos(moAng)*460 + off*Math.cos(moAng+Math.PI/2),
+        y:Math.sin(moAng)*460 + off*Math.sin(moAng+Math.PI/2),
+        d:{t:"成品批号", lot_no:w.fa_lot, mat_code:w.fa_mat, mat_name:w.fa_name,
+           qty:w.fa_qty.toLocaleString(), bills:w.in_bill,
+           mo:w.mid.replace("mo_",""), appr:w.appr}});
+      edges.push({from:w.mid, to:w.fa_id, label:"入库 "+w.fa_qty.toLocaleString(), dir:"B",
+        bill:w.in_bill, width:railWidth(w.fa_qty)});
+    });
+  }
+
+  markShared(nodes, edges, W1.map(w=>w.mid));
+  return {nodes, edges, center:"傲而特20211112", note:"真实回填数据"};
+}
+
+// 案例 2 布局：中心工单 → 原料（左） / 成品（右）
+function buildShared(depth){
+  const nodes = [], edges = [];
+  nodes.push({id:S_MO.id, label:S_MO.mo+"/"+S_MO.entry, type:"MO", x:0, y:0,
+    d:{t:"生产工单(中心)", bill:S_MO.mo, entry:S_MO.entry,
+       qty:"投料 1,871.2", note:"同一工单分 3 批入库"}});
+
+  const rawPos = [{x:-300,y:-160},{x:-300,y:160}];
+  S_RAWS.forEach((r,i)=>{
+    nodes.push({id:r.id, label:r.lot_no, type:"RAW", x:rawPos[i].x, y:rawPos[i].y,
+      d:{t:"原料批号", lot_no:r.lot_no, lot_id:r.lot_id, mat_code:r.mat_code,
+         mat_name:r.mat_name, qty:r.qty.toLocaleString(), bills:r.pick}});
+    edges.push({from:r.id, to:S_MO.id, label:"领料 "+r.qty.toLocaleString(), dir:"F",
+      bill:r.pick, width:railWidth(r.qty)});
+  });
+
+  if(depth >= 2){
+    const faPos = [{x:300,y:-210},{x:340,y:0},{x:300,y:210}];
+    S_FAS.forEach((f,i)=>{
+      nodes.push({id:f.id, label:f.lot_no, type:"FA", x:faPos[i].x, y:faPos[i].y,
+        d:{t:"成品批号", lot_no:f.lot_no, lot_id:f.lot_id, mat_code:f.mat_code,
+           mat_name:f.mat_name, qty:f.qty.toLocaleString(), bills:f.in_bill,
+           mo:S_MO.mo+" / "+S_MO.entry, appr:f.appr}});
+      edges.push({from:S_MO.id, to:f.id, label:"入库 "+f.qty.toLocaleString(), dir:"B",
+        bill:f.in_bill, width:railWidth(f.qty)});
+    });
+  }
+
+  markShared(nodes, edges, [S_MO.id]);
+  return {nodes, edges, center:S_MO.mo+" / 分录 "+S_MO.entry, note:"真实数据 · 分批入库"};
+}
+
+// ==================================================================
+// 渲染
+// ==================================================================
+let G = buildMain(2);
+let CUR_SHARED = false;
+let net = null;
+const tip = document.getElementById("tip");
+
+function visColor(type){
+  return type==="CENTER"?{bg:"#ff7b72",bd:"#ffa198"} :
+         type==="FA"?{bg:"#3fb950",bd:"#56d364"} :
+         type==="MO"?{bg:"#f0883e",bd:"#ffa657"} :
+         type==="BILL"?{bg:"#a371f7",bd:"#d2a8ff"} :
+         {bg:"#58a6ff",bd:"#79c0ff"};
+}
+
+function render(){
+  const nodes = G.nodes.map(n => {
+    const c = visColor(n.type);
+    const sz = n.type==="CENTER"?30 : n.type==="FA"?24 : n.type==="MO"?20 : n.type==="BILL"?18 : 16;
+    return {
+      id:n.id, label:n.label,
+      shape: n.type==="CENTER"?"circle":n.type==="FA"?"box":n.type==="MO"?"diamond":n.type==="BILL"?"hexagon":"dot",
+      size: sz,
+      borderWidth: n.shared ? 3 : (n.type==="CENTER"?4:2),
+      borderWidthSelected: 4,
+      shapeProperties:{ borderDashes: n.shared ? [7,5] : false },
+      color:{background:c.bg, border: n.shared ? "#d29922" : c.bd,
+             highlight:{background:c.bg, border:"#fff"}},
+      font:{color:"#fff", size: n.type==="CENTER"?12:n.type==="MO"?11:10,
+            face:"PingFang SC, Microsoft YaHei, Consolas", bold:n.type!=="RAW",
+            strokeWidth:3, strokeColor:"#060a10", align:"bottom", vadjust:6},
+      shadow:{enabled:true, color:c.bg, size:n.type==="CENTER"?20:8, x:0, y:0},
+      x:n.x, y:n.y, fixed:true, physics:false,
+      __d:n.d, __t:n.type
+    };
+  });
+
+  const edges = G.edges.map((e,i) => {
+    const c = e.shared ? "#d29922" : (e.dir==="F" ? "#58a6ff" : "#f0883e");
+    e.__id = "e"+i;
+    return {
+      id:e.__id, from:e.from, to:e.to, label:e.label, width:e.width||2,
+      color:{color:c, highlight:"#fff", opacity:.8},
+      dashes: e.shared ? [6,4] : false,
+      arrows:{to:{enabled:true, scaleFactor:.8}},
+      smooth:{type:"curvedCW", roundness:.12},
+      font:{color:c, size:9, align:"middle", strokeWidth:3, strokeColor:"#060a10", face:"Consolas"},
+      __d:e
+    };
+  });
+
+  const data = {nodes:new vis.DataSet(nodes), edges:new vis.DataSet(edges)};
+  const opts = {
+    nodes:{margin:16},
+    edges:{hoverWidth:3, selectionWidth:3},
+    physics:{enabled:false},
+    interaction:{hover:true, dragNodes:false, zoomView:true, dragView:true, hideEdgesOnDrag:false},
+    layout:{improvedLayout:false},
+    background:{color:"#060a10"}
+  };
+
+  if (net) net.destroy();
+  net = new vis.Network(document.getElementById("graph"), data, opts);
+
+  document.getElementById("sT").textContent = G.center;
+  document.getElementById("sR").textContent = G.note;
+  document.getElementById("sN").textContent = nodes.length;
+  document.getElementById("sE").textContent = edges.length;
+  document.getElementById("ex").disabled = false;
+
+  setTimeout(()=>{ if(net) net.moveTo({position:{x:0,y:0}, scale:1, animation:{duration:300}}); }, 100);
+
+  net.on("click", p=>{
+    if (p.nodes.length) showDetail(p.nodes[0]);
+    else if (p.edges.length) showEdge(p.edges[0]);
+  });
+  net.on("hoverNode", p=>tipNode(p.node, p.event));
+  net.on("blurNode", ()=>tip.style.display="none");
+  net.on("hoverEdge", p=>tipEdge(p.edge, p.event));
+  net.on("blurEdge", ()=>tip.style.display="none");
+}
+
+// ========== 悬浮卡 ==========
+function placeTip(evt){
+  const x = (evt.touches?evt.touches[0]:evt).clientX;
+  const y = (evt.touches?evt.touches[0]:evt).clientY;
+  tip.style.left = Math.min(x+14, window.innerWidth-350)+"px";
+  tip.style.top  = Math.min(y+14, window.innerHeight-tip.offsetHeight-20)+"px";
+}
+
+function tipNode(id, evt){
+  const n = G.nodes.find(x=>x.id===id);
+  if (!n || !n.d) return;
+  const d = n.d, c = visColor(n.type);
+  let body = "";
+  if (d.lot_no) body += `<div class="tip-row"><span class="k">批号</span><span class="v b">${d.lot_no}</span></div>`;
+  if (d.lot_id) body += `<div class="tip-row"><span class="k">批号内码</span><span class="v">${d.lot_id}</span></div>`;
+  if (d.mat_code) {
+    body += `<div class="tip-row"><span class="k">物料编码</span><span class="v g">${d.mat_code}</span></div>`;
+    body += `<div class="tip-row"><span class="k">品名</span><span class="v" style="max-width:70%">${d.mat_name||""}</span></div>`;
+  }
+  if (d.qty) body += `<div class="tip-row"><span class="k">数量</span><span class="v o">${d.qty}</span></div>`;
+  if (d.bill) body += `<div class="tip-row"><span class="k">工单号</span><span class="v o">${d.bill}</span></div>`;
+  if (d.entry) body += `<div class="tip-row"><span class="k">分录</span><span class="v">${d.entry}</span></div>`;
+  if (d.mo) body += `<div class="tip-row"><span class="k">关联工单</span><span class="v o">${d.mo}</span></div>`;
+  if (d.bills) body += `<div class="tip-row"><span class="k">单据号</span><span class="v" style="max-width:70%">${Array.isArray(d.bills)?d.bills.join(", "):d.bills}</span></div>`;
+  if (d.appr) body += `<div class="tip-row"><span class="k">审核</span><span class="v gray" style="color:#8b949e">${d.appr}</span></div>`;
+  if (d.shared) body += `<div class="tip-row"><span class="k">⚠ 共享投料</span><span class="v w" style="max-width:70%">${d.shared}</span></div>`;
+  if (d.note) body += `<div class="tip-row"><span class="k">备注</span><span class="v w">${d.note}</span></div>`;
+
+  tip.innerHTML = `<div class="th"><div class="badge" style="background:${c.bg}"></div><div class="tt">${n.label}</div><div class="tg" style="color:${c.bg}">${d.t}</div></div>${body}`;
+  tip.style.display="block";
+  placeTip(evt);
+}
+
+function tipEdge(id, evt){
+  const e = G.edges.find(x=>x.__id===id);
+  if (!e) return;
+  const fn = G.nodes.find(n=>n.id===e.from), tn = G.nodes.find(n=>n.id===e.to);
+  const c = e.shared ? "#d29922" : (e.dir==="F"?"#58a6ff":"#f0883e");
+  tip.innerHTML = `<div class="th"><div class="badge" style="background:${c}"></div><div class="tt">${e.dir==="F"?"领料边":"入库边"}</div><div class="tg" style="color:${c}">${e.label}</div></div>
+    <div class="tip-row"><span class="k">${e.dir==="F"?"原料":"工单"}</span><span class="v">${fn?fn.label:""}</span></div>
+    <div class="tip-row"><span class="k">${e.dir==="F"?"工单":"成品"}</span><span class="v">${tn?tn.label:""}</span></div>
+    ${e.bill?`<div class="tip-row"><span class="k">单据号</span><span class="v" style="max-width:70%">${e.bill}</span></div>`:""}
+    ${e.shared?`<div class="tip-row"><span class="k">⚠ 共享投料</span><span class="v w" style="max-width:70%">${e.sharedNote||""}</span></div>`:""}`;
+  tip.style.display="block";
+  placeTip(evt);
+}
+
+// ========== 侧边详情 ==========
+function showDetail(id){
+  const n = G.nodes.find(x=>x.id===id);
+  if (!n || !n.d) return;
+  const d = n.d;
+  let h = `<div class="kv"><div class="k">${d.t}</div><div class="v big ${n.type==='CENTER'?'r':n.type==='FA'?'g':n.type==='MO'?'o':'b'}">${n.label}</div></div>`;
+  if (d.lot_no){ h+=`<div class="kv"><div class="k">批号文本</div><div class="v">${d.lot_no}</div></div><div class="kv"><div class="k">批号内码</div><div class="v gray">${d.lot_id}</div></div>`; }
+  if (d.mat_code!==undefined){ h+=`<div class="div"></div><div class="kv"><div class="k">物料编码</div><div class="v b">${d.mat_code}</div></div><div class="kv"><div class="k">物料品名</div><div class="v">${d.mat_name}</div></div>`; }
+  if (d.qty!==undefined){ h+=`<div class="div"></div><div class="kv"><div class="k">数量</div><div class="v big o">${d.qty}</div></div>`; }
+  if (d.bill!==undefined){ h+=`<div class="kv"><div class="k">工单号</div><div class="v o">${d.bill}</div></div><div class="kv"><div class="k">工单分录</div><div class="v gray">${d.entry}</div></div>`; }
+  if (d.mo!==undefined){ h+=`<div class="kv"><div class="k">关联工单</div><div class="v o">${d.mo}</div></div>`; }
+  if (d.bills!==undefined){ h+=`<div class="div"></div><div class="kv"><div class="k">单据号</div><div class="v g" style="white-space:pre-line">${Array.isArray(d.bills)?d.bills.join("\n"):d.bills}</div></div>`; }
+  if (d.appr!==undefined){ h+=`<div class="kv"><div class="k">审核日期</div><div class="v gray">${d.appr}</div></div>`; }
+  if (d.shared){ h+=`<div class="div"></div><div class="kv"><div class="k">⚠ 共享投料</div><div class="v" style="color:#d29922;font-family:inherit">${d.shared}</div></div>`; }
+  if (d.note){ h+=`<div class="kv"><div class="k">备注</div><div class="v gray">${d.note}</div></div>`; }
+  document.getElementById("det").innerHTML = h;
+}
+
+function showEdge(id){
+  const e = G.edges.find(x=>x.__id===id);
+  if (!e) return;
+  const fn = G.nodes.find(n=>n.id===e.from), tn = G.nodes.find(n=>n.id===e.to);
+  const c = e.shared ? "#d29922" : (e.dir==="F" ? "#79c0ff" : "#ffa657");
+  let h = `<div class="kv"><div class="k">边类型</div><div class="v big" style="color:${c}">${e.dir==='F'?'领料边':'入库边'}${e.shared?' · 共享投料':''}</div></div>`;
+  h += `<div class="kv"><div class="k">${e.dir==='F'?'原料':'工单'}</div><div class="v">${fn?fn.label:""}</div></div>`;
+  h += `<div class="kv"><div class="k">${e.dir==='F'?'工单':'成品'}</div><div class="v">${tn?tn.label:""}</div></div>`;
+  h += `<div class="kv"><div class="k">数量</div><div class="v big o">${e.label}</div></div>`;
+  if (e.bill) h += `<div class="kv"><div class="k">单据号</div><div class="v g">${e.bill}</div></div>`;
+  if (e.shared) h += `<div class="kv"><div class="k">⚠ 共享投料</div><div class="v" style="color:#d29922;font-family:inherit">${e.sharedNote||""}</div></div>`;
+  document.getElementById("det").innerHTML = h;
+}
+
+// ========== 导出 ==========
+function doCSV(){
+  const rows = [];
+  G.edges.filter(e=>e.dir==="F").forEach(e => {
+    const rn = G.nodes.find(n=>n.id===e.from), mn = G.nodes.find(n=>n.id===e.to);
+    G.edges.filter(x=>x.from===e.to && x.dir==="B").forEach(be => {
+      const fn = G.nodes.find(n=>n.id===be.to);
+      rows.push({
+        原料批号: rn&&rn.d&&rn.d.lot_no||rn&&rn.label||"", 原料物料编码: rn&&rn.d&&rn.d.mat_code||"", 原料品名: rn&&rn.d&&rn.d.mat_name||"",
+        工单号: mn&&mn.d&&mn.d.bill||"", 工单分录: mn&&mn.d&&mn.d.entry||"", 领料数量: e.label.replace(/领料 /,""), 领料单号: e.bill||"",
+        成品批号: fn&&fn.d&&fn.d.lot_no||fn&&fn.label||"", 成品物料编码: fn&&fn.d&&fn.d.mat_code||"", 成品品名: fn&&fn.d&&fn.d.mat_name||"",
+        成品数量: fn&&fn.d&&fn.d.qty||"", 入库单号: fn&&fn.d&&fn.d.bills||"", 审核日期: fn&&fn.d&&fn.d.appr||"",
+        共享投料: (e.shared||be.shared) ? "是（同工单投料共用，不可精确分摊）" : ""
+      });
+    });
+  });
+  if (!rows.length){ alert("当前图谱没有可导出的追溯边"); return; }
+  const hd = Object.keys(rows[0]);
+  const csv = ["\uFEFF", hd.join(","),
+    ...rows.map(r=>hd.map(h=>{const v=(r[h]??"").toString().replace(/"/g,'""');return /[,"\n]/.test(v)?`"${v}"`:v}).join(","))].join("\n");
+  const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `批次追溯_${G.center}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ========== 真实接口：TraceApiService.Query ==========
+function fmtQty(v){
+  const n = Number(v);
+  return isFinite(n) ? n.toLocaleString(undefined,{maximumFractionDigits:3}) : String(v);
+}
+
+function typeLabel(n){
+  if(n.type==="LOT") return n.productType==="2"?"成品批号(联产品)":n.productType==="3"?"成品批号(副产品)":"批号";
+  if(n.type==="MO") return "生产工单";
+  return "单据明细";
+}
+
+async function callApi(type, no, direction, depth){
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), API_CONFIG.timeout);
+  try{
+    const res = await fetch(API_CONFIG.url,{
+      method:"POST", credentials:"include", signal:ctrl.signal,
+      headers:{"Content-Type":"application/json;charset=utf-8"},
+      body:JSON.stringify({parameters:[{type, no, direction, depth}]})
+    });
+    const txt = await res.text();
+    let j;
+    try{ j = JSON.parse(txt); }
+    catch(e){ throw new Error("返回非 JSON（HTTP "+res.status+"）："+txt.slice(0,160)); }
+    if(j.ok === false) throw new Error(j.message || "查询失败");
+    if(!Array.isArray(j.nodes)) throw new Error("返回缺少 nodes，请确认 DLL 已部署并注册 WebAPI");
+    return j;
+  } finally { clearTimeout(timer); }
+}
+
+// 把 WebAPI 返回的 nodes/edges 转成图谱结构，按 level 做同心环布局
+function apiToGraph(resp, startNo){
+  const byKey = {}, nodes = [], edges = [];
+
+  (resp.nodes||[]).forEach(n=>{
+    if(!n || !n.key || byKey[n.key]) return;
+    const isLot = n.type==="LOT", isMo = n.type==="MO";
+    const lv = Number(n.level||0);
+    const base = isLot ? "LOT" : isMo ? "MO" : "BILL";
+    const type = lv===0 ? "CENTER" : (isLot ? "RAW" : isMo ? "MO" : "BILL");
+    const d = {t: typeLabel(n)};
+    if(n.qty!==undefined && n.qty!==null) d.qty = fmtQty(n.qty);
+    if(isLot){
+      d.lot_no = n.no; d.lot_id = n.key.split(":")[1];
+      if(n.material) d.mat_code = n.material;
+      if(n.billNo) d.bills = n.billNo;
+    } else if(isMo){
+      d.bill = n.billNo; d.entry = n.key.split(":")[1];
+    } else {
+      d.billType = n.billType; d.billNo = n.billNo; d.bills = n.billNo;
+      d.entry = n.key.split(":")[1];
+    }
+    const node = {id:n.key, label:n.no || n.billNo || n.key, type, base, level:lv, d};
+    byKey[n.key] = node; nodes.push(node);
+  });
+
+  (resp.edges||[]).forEach(e=>{
+    if(!byKey[e.from] || !byKey[e.to]) return;
+    const ft = byKey[e.from].base, tt = byKey[e.to].base;
+    let dir = "F", prefix = "领料";
+    if(ft==="MO"){ dir = "B"; prefix = "入库"; }
+    if(ft==="BILL" || tt==="BILL"){ dir = "F"; prefix = "单据"; }
+    const q = Number(e.qty)||1;
+    edges.push({
+      from:e.from, to:e.to,
+      label: prefix+" "+fmtQty(e.qty||0),
+      dir, bill:e.billNo, billType:e.billType, width:railWidth(q)
+    });
+  });
+
+  // LOT 角色修正：被工单产出的 = 成品(FA)，被工单领用的 = 原料(RAW)
+  nodes.forEach(n=>{
+    if(n.base!=="LOT" || n.type==="CENTER") return;
+    const isOutput = edges.some(e=>e.to===n.id && byKey[e.from].base==="MO");
+    n.type = isOutput ? "FA" : "RAW";
+  });
+
+  layoutByLevel(nodes);
+  markShared(nodes, edges, nodes.filter(n=>n.base==="MO").map(n=>n.id));
+  return {nodes, edges, center:startNo,
+          note:"实时 API · "+(resp.truncated?"结果已截断":"完整")};
+}
+
+function layoutByLevel(nodes){
+  const levels = {};
+  nodes.forEach(n=>{ (levels[n.level]=levels[n.level]||[]).push(n); });
+  Object.keys(levels).forEach(k=>{
+    const lv = Number(k), arr = levels[k];
+    if(lv===0){ arr.forEach(n=>{ n.x=0; n.y=0; }); return; }
+    const r = 210 + (lv-1)*240;
+    arr.forEach((n,i)=>{
+      const ang = -Math.PI/2 + i*2*Math.PI/arr.length;
+      n.x = Math.cos(ang)*r;
+      n.y = Math.sin(ang)*r;
+    });
+  });
+}
+
+// ========== 入口 ==========
+let DEEP_OVERRIDE = null;   // 深链传入、但单选里没有的深度值（如 6）
+function curDepth(){
+  if(DEEP_OVERRIDE !== null) return DEEP_OVERRIDE;
+  const v = document.querySelector('input[name="dp"]:checked').value;
+  return v === "all" ? 99 : parseInt(v,10);
+}
+
+async function go(){
+  CUR_SHARED = false;
+  document.getElementById("btnShared").classList.remove("on");
+  const tag = document.getElementById("apiTag");
+  const no = document.getElementById("qI").value.trim();
+  const type = document.getElementById("qT").value || "LOT";
+  const dir = parseInt(document.getElementById("qD").value || "0", 10);
+  const depth = Math.min(20, curDepth());
+
+  if(!API_CONFIG.enabled){
+    tag.className = "tag-demo"; tag.textContent = "演示数据";
+    if(!no) return;
+    G = buildMain(curDepth());
+    render();
+    return;
+  }
+
+  if(!no){ alert("请输入批号或工单号"); return; }
+
+  tag.className = "tag-live"; tag.textContent = "查询中…";
+  try{
+    const resp = await callApi(type, no, dir, depth);
+    G = apiToGraph(resp, no);
+    tag.className = "tag-live"; tag.textContent = "实时 API";
+    render();
+  }catch(err){
+    tag.className = "tag-err"; tag.textContent = "接口失败";
+    alert("接口调用失败：\n" + err.message +
+      "\n\n检查：① DLL 已复制到 WebSite\\bin 并 iisreset ② 已登录 K3Cloud ③ URL 与 WebAPI 测试页一致");
+  }
+}
+
+function goShared(){
+  CUR_SHARED = true;
+  document.getElementById("btnShared").classList.add("on");
+  document.getElementById("qT").value = "MO";
+  document.getElementById("qI").value = S_MO.mo;
+  G = buildShared(curDepth());
+  render();
+}
+
+document.querySelectorAll('input[name="dp"]').forEach(r=>r.addEventListener("change", ()=>{
+  DEEP_OVERRIDE = null;
+  G = CUR_SHARED ? buildShared(curDepth()) : buildMain(curDepth());
+  render();
+}));
+
+// 深链：?type=LOT|MO&no=批号或工单号&dir=0|1|2&depth=1|2|3|all
+// 供 BOS 超链接字段/按钮直接跳转使用
+(function deepLink(){
+  const p = new URLSearchParams(location.search);
+  const no = (p.get("no")||"").trim();
+  if(!no) return;
+  const t = (p.get("type")||"LOT").toUpperCase();
+  document.getElementById("qT").value = (t === "MO") ? "MO" : "LOT";
+  document.getElementById("qI").value = no;
+  const d = p.get("dir");
+  if(d !== null && ["0","1","2"].indexOf(d) >= 0) document.getElementById("qD").value = d;
+  const dp = p.get("depth");
+  if(dp){
+    const n = parseInt(dp,10);
+    if(dp === "all"){
+      DEEP_OVERRIDE = 99;
+    } else if(n >= 1 && n <= 20){
+      const r = document.querySelector('input[name="dp"][value="' + n + '"]');
+      if(r) { r.checked = true; DEEP_OVERRIDE = null; }
+      else DEEP_OVERRIDE = n;
+    }
+  }
+  go();
+})();
+
+render();
+</script>
+</body>
+</html>

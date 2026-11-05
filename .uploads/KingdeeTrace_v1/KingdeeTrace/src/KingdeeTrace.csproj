@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{8B0E3A2C-1F4D-4C7B-9A6E-2D5F7C8B1E34}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>KingdeeTrace</RootNamespace>
+    <AssemblyName>KingdeeTrace</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <LangVersion>7.3</LangVersion>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <!-- 指向你环境 K3Cloud 网站的 Bin 目录，按实际路径修改 -->
+    <K3CloudBin Condition=" '$(K3CloudBin)' == '' ">D:\Program Files (x86)\Kingdee\K3Cloud\WebSite\bin</K3CloudBin>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Kingdee.BOS">
+      <HintPath>$(K3CloudBin)\Kingdee.BOS.dll</HintPath>
+    </Reference>
+    <Reference Include="Kingdee.BOS.Core">
+      <HintPath>$(K3CloudBin)\Kingdee.BOS.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Kingdee.BOS.DataEntity">
+      <HintPath>$(K3CloudBin)\Kingdee.BOS.DataEntity.dll</HintPath>
+    </Reference>
+    <Reference Include="Kingdee.BOS.App">
+      <HintPath>$(K3CloudBin)\Kingdee.BOS.App.dll</HintPath>
+    </Reference>
+    <Reference Include="Kingdee.BOS.WebApi.ServicesStub">
+      <HintPath>$(K3CloudBin)\Kingdee.BOS.WebApi.ServicesStub.dll</HintPath>
+    </Reference>
+    <Reference Include="Kingdee.BOS.ServiceHelper">
+      <HintPath>$(K3CloudBin)\Kingdee.BOS.ServiceHelper.dll</HintPath>
+    </Reference>
+    <Reference Include="Kingdee.BOS.ServiceFacade.KDServiceFx">
+      <HintPath>$(K3CloudBin)\Kingdee.BOS.ServiceFacade.KDServiceFx.dll</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(K3CloudBin)\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Web" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="TraceSchema.cs" />
+    <Compile Include="Models.cs" />
+    <Compile Include="SqlUtil.cs" />
+    <Compile Include="TraceLog.cs" />
+    <Compile Include="TraceEdgeWriter.cs" />
+    <Compile Include="TraceEngine.cs" />
+    <Compile Include="TraceRuleRegistry.cs" />
+    <Compile Include="WebApi\TraceApiService.cs" />
+    <Compile Include="PlugIns\TraceEdgeBillPlugIn.cs" />
+    <Compile Include="PlugIns\TraceQueryPlugIn.cs" />
+    <Compile Include="PlugIns\TraceStatPlugIn.cs" />
+  </ItemGroup>
+</Project>
