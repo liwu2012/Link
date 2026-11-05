@@ -1,0 +1,4 @@
+/workspace/XyLink/obj/Debug/XyLink.csproj.AssemblyReference.cache
+/workspace/XyLink/obj/Debug/Designer/DrawingControl/XyLinkCellTypeDrawingControl.g.cs
+/workspace/XyLink/obj/Debug/XyLink_MarkupCompile.cache
+/workspace/XyLink/obj/Debug/XyLink_MarkupCompile.lref

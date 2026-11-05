@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "X3G5Td7zDK0=",
+  "success": true,
+  "projectFilePath": "/workspace/XyLink/XyLink.csproj",
+  "expectedPackageFiles": [
+    "/root/.nuget/packages/microsoft.extensions.dependencyinjection/8.0.1/microsoft.extensions.dependencyinjection.8.0.1.nupkg.sha512",
+    "/root/.nuget/packages/microsoft.extensions.dependencyinjection.abstractions/8.0.2/microsoft.extensions.dependencyinjection.abstractions.8.0.2.nupkg.sha512",
+    "/root/.nuget/packages/microsoft.windowsdesktop.app.ref/8.0.33/microsoft.windowsdesktop.app.ref.8.0.33.nupkg.sha512"
+  ],
+  "logs": []
+}
