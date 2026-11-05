@@ -563,3 +563,27 @@ public class KingdeeClient : IKingdeeClient
   > 注：金蝶帮助文档的页面 id 为中文，若链接失效可在 help.open.kingdee.com 搜索对应中文标题。
 - 活字格服务端命令调用第三方 HTTP 服务（hzg-mcp 文档 ID `thirdpartynetworkserviceinteraction`）
 - 活字格插件动态字段映射（hzg-mcp 文档 ID `dynamicmappinginplugins`）
+
+---
+
+## 16. 代码实现状态
+
+已落地的最小闭环（均在 `XyLink/Lineage/`）：
+
+| 文件 | 作用 |
+| --- | --- |
+| `KingdeeOptions.cs` | 连接配置、签名、查询模型、异常类型 |
+| `KingdeeClient.cs` | LoginBySign / LoginByAppSecret、Cookie 会话、ExecuteBillQuery、分页、重试、错误解析 |
+| `KingdeeMapping.cs` | 默认单据映射（PRD_INSTOCK / PRD_MO / PRD_PickMtrl / STK_InStock / BD_Supplier），支持 JSON 覆盖 |
+| `LineageModels.cs` | 节点/边/结果模型、图构建器、节点与边去重、上限保护 |
+| `KingdeeLineageDataSource.cs` | 正查、反查、全链推导，采购来源与供应商补全，断链告警 |
+| `XyLinkServerCommand.cs` | 活字格服务端命令，读取连接与查询参数，返回血缘 JSON |
+
+尚未完成：
+
+- E0 账套联调：登录、查询报文形态、字段 Key 实测。
+- 前端 ECharts 血缘图与 CSV/PNG 导出。
+- 金蝶“质量追溯/批号序列号关系”优先数据源（当前为单据字段推导）。
+- 缓存、增量索引、MCP 工具发布与权限控制。
+
+> 编译需在安装了活字格 10 的 Windows 环境执行；本沙箱缺少 Forguncy DLL 与 dotnet SDK，无法编译验证。
