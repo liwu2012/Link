@@ -1,0 +1,20 @@
+{
+  "assembly": [
+    "XyLink.dll"
+  ],
+  "css": [],
+  "javascript": [
+    "Resources/XyLinkCellType.js",
+    "Resources/XyLinkCommand.js"
+  ],
+  "serverApiAssembly": [],
+  "image": "Resources/PluginLogo.png",
+  "description": "插件",
+  "name": "质量追溯",
+  "pluginType": "cellType,command",
+  "guid": "f73a1f53-4182-4648-9a2b-566e868d41e3",
+  "version": "1.0.0.0",
+  "dependenceVersion": "10.0.103.0",
+  "bundleJavaScript": true,
+  "bundleCSS": true
+}

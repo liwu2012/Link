@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\</OutputPath>
+    <UseWPF>true</UseWPF>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Resources\Icon.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Forguncy.Log.Abstractions" Exclude="runtime">
+      <HintPath>D:\Program Files\Forguncy 10\Website\bin\Forguncy.Log.Abstractions.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Forguncy.Commands" Exclude="runtime">
+      <HintPath>D:\Program Files\Forguncy 10\Website\bin\Forguncy.Commands.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Forguncy.Commands.Design" Exclude="runtime">
+      <HintPath>D:\Program Files\Forguncy 10\Website\designerBin\Forguncy.Commands.Design.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="GrapeCity.Forguncy.CellTypes" Exclude="runtime">
+      <HintPath>D:\Program Files\Forguncy 10\Website\bin\GrapeCity.Forguncy.CellTypes.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="GrapeCity.Forguncy.CellTypes.Design" Exclude="runtime">
+      <HintPath>D:\Program Files\Forguncy 10\Website\designerBin\GrapeCity.Forguncy.CellTypes.Design.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="GrapeCity.Forguncy.Plugin" Exclude="runtime">
+      <HintPath>D:\Program Files\Forguncy 10\Website\bin\GrapeCity.Forguncy.Plugin.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="GrapeCity.Forguncy.Plugin.Design" Exclude="runtime">
+      <HintPath>D:\Program Files\Forguncy 10\Website\designerBin\GrapeCity.Forguncy.Plugin.Design.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="GrapeCity.Forguncy.ServerApi">
+      <HintPath>D:\Program Files\Forguncy 10\Website\bin\GrapeCity.Forguncy.ServerApi.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Analyzer Include="..\PackageTools\PluginAnalyzer.dll" />
+  </ItemGroup>
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="&quot;..\PackageTools\ForguncyPluginPackageTool.exe&quot; &quot;$(ProjectDir).&quot; &quot;$(ProjectDir)$(OutputPath)$(AssemblyName).dll&quot; $(ConfigurationName)" />
+  </Target>
+</Project>
