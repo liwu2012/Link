@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>血缘图效果预览</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #0d1117; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: #e6edf3; }
+  #toolbar { position: fixed; top: 12px; right: 16px; z-index: 10; display: flex; gap: 8px; }
+  #toolbar button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  #toolbar button:hover { background: #30363d; }
+  #chart { width: 100vw; height: 100vh; }
+  #detail { position: fixed; top: 12px; left: 16px; max-width: 320px; background: rgba(22,27,34,0.92); border: 1px solid #30363d; border-radius: 8px; padding: 14px; font-size: 13px; line-height: 1.7; display: none; z-index: 10; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+  #detail h3 { margin: 0 0 8px; font-size: 15px; color: #58a6ff; }
+  #detail .row { display: flex; justify-content: space-between; border-bottom: 1px dashed #30363d; padding: 2px 0; }
+  #detail .row span:last-child { color: #8b949e; max-width: 200px; word-break: break-all; text-align: right; }
+  #hint { position: fixed; bottom: 12px; left: 16px; font-size: 12px; color: #8b949e; z-index: 10; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <button onclick="exportPNG()">导出 PNG</button>
+  <button onclick="exportCSV()">导出 CSV</button>
+</div>
+<div id="detail"></div>
+<div id="chart"></div>
+<div id="hint">提示：拖拽节点、滚轮缩放，点击节点查看详情</div>
+
+<script>
+/* 模拟金蝶血缘 API 返回的数据 —— 与活字格插件接收的 JSON 结构一致 */
+var lineageData = {
+  version: "1.0",
+  mode: "full",
+  nodes: [
+    { id: "lot|ZP2026110501", type: "batch", label: "成品批号\nZP2026110501", props: { productType: "mainproduct", qty: "1000", unit: "PCS", level: 0, materialCode: "FG-A001", materialName: "成品A" }, group: "seed" },
+    { id: "mo|MO-2026-1105-001", type: "mo", label: "生产订单\nMO-2026-1105-001", props: { productType: "mainproduct", qty: "1000", unit: "PCS", level: 1, date: "2026-11-05", status: "已完成" } },
+    { id: "lot|RM2026110101", type: "batch", label: "原料批号\nRM2026110101", props: { productType: "rawmaterial", qty: "2500", unit: "KG", level: 2, materialCode: "RM-001", materialName: "原料1" } },
+    { id: "lot|RM2026110102", type: "batch", label: "原料批号\nRM2026110102", props: { productType: "rawmaterial", qty: "1200", unit: "KG", level: 2, materialCode: "RM-002", materialName: "原料2" } },
+    { id: "mo|MO-2026-1101-001", type: "mo", label: "生产订单\nMO-2026-1101-001", props: { productType: "mainproduct", qty: "2500", unit: "KG", level: 3, date: "2026-11-01" } },
+    { id: "lot|SUP2026102501", type: "batch", label: "供应商批号\nSUP2026102501", props: { productType: "rawmaterial", qty: "5000", unit: "KG", level: 4, materialCode: "SUP-001", materialName: "供应商原料", supplier: "华东化工有限公司", date: "2026-10-25" } }
+  ],
+  edges: [
+    { source: "lot|ZP2026110501", target: "mo|MO-2026-1105-001", label: "入库单:INSTOCK-001", props: { billType: "PRD_INSTOCK", qty: "1000" } },
+    { source: "mo|MO-2026-1105-001", target: "lot|RM2026110101", label: "领料:PICK-001", props: { billType: "PRD_PICKMTRL", qty: "2500" } },
+    { source: "mo|MO-2026-1105-001", target: "lot|RM2026110102", label: "领料:PICK-001", props: { billType: "PRD_PICKMTRL", qty: "1200" } },
+    { source: "lot|RM2026110101", target: "mo|MO-2026-1101-001", label: "入库单:INSTOCK-R01", props: { billType: "PRD_INSTOCK", qty: "2500" } },
+    { source: "mo|MO-2026-1101-001", target: "lot|SUP2026102501", label: "采购入库:PO-20261025", props: { billType: "STK_INSTOCK", qty: "5000" } }
+  ],
+  truncated: false,
+  warnings: []
+};
+
+var chart = echarts.init(document.getElementById('chart'), 'dark');
+var colorMap = {
+  mainproduct: '#ff7b72',
+  coproduct: '#ffa657',
+  byproduct: '#8b949e',
+  rawmaterial: '#79c0ff'
+};
+
+function buildOption(data) {
+  var nodes = data.nodes.map(function(n) {
+    var isSeed = n.group === 'seed';
+    return {
+      id: n.id,
+      name: n.label,
+      symbol: n.type === 'mo' ? 'diamond' : 'circle',
+      symbolSize: isSeed ? 70 : 52,
+      itemStyle: {
+        color: colorMap[(n.props && n.props.productType) || 'rawmaterial'] || '#79c0ff',
+        shadowBlur: isSeed ? 25 : 12,
+        shadowColor: isSeed ? '#ffd700' : 'rgba(0,0,0,0.5)',
+        borderColor: isSeed ? '#ffd700' : '#1f6feb',
+        borderWidth: isSeed ? 3 : 1
+      },
+      label: { show: true, color: '#e6edf3', fontSize: 11, position: 'bottom' },
+      _props: n.props || {},
+      _id: n.id
+    };
+  });
+
+  var links = data.edges.map(function(e) {
+    return {
+      source: e.source,
+      target: e.target,
+      label: { show: true, formatter: e.label || '', fontSize: 9, color: '#8b949e' },
+      lineStyle: { color: '#30363d', width: 1.5, curveness: 0.1 },
+      _props: e.props || {}
+    };
+  });
+
+  return {
+    backgroundColor: '#0d1117',
+    tooltip: {
+      formatter: function(p) {
+        if (p.dataType === 'node') {
+          var s = '<b>' + p.name.replace(/\n/g, ' ') + '</b>';
+          for (var k in p.data._props) s += '<br/>' + k + ': ' + p.data._props[k];
+          return s;
+        } else {
+          var s = p.data.label || '';
+          for (var k in p.data._props) s += '<br/>' + k + ': ' + p.data._props[k];
+          return s;
+        }
+      }
+    },
+    series: [{
+      type: 'graph',
+      layout: 'force',
+      roam: true,
+      draggable: true,
+      focusNodeAdjacency: true,
+      force: { repulsion: 600, edgeLength: [80, 180], gravity: 0.08 },
+      data: nodes,
+      links: links,
+      lineStyle: { color: 'source', curveness: 0.1 }
+    }]
+  };
+}
+
+chart.setOption(buildOption(lineageData));
+
+chart.on('click', function(params) {
+  var d = document.getElementById('detail');
+  if (params.dataType === 'node') {
+    var html = '<h3>' + params.name.replace(/\n/g, ' ') + '</h3>';
+    html += '<div class="row"><span>节点ID</span><span>' + params.data._id + '</span></div>';
+    for (var k in params.data._props) {
+      html += '<div class="row"><span>' + k + '</span><span>' + params.data._props[k] + '</span></div>';
+    }
+    d.innerHTML = html;
+    d.style.display = 'block';
+  } else if (params.dataType === 'edge') {
+    var html = '<h3>边信息</h3>';
+    html += '<div class="row"><span>来源</span><span>' + params.data.source + '</span></div>';
+    html += '<div class="row"><span>目标</span><span>' + params.data.target + '</span></div>';
+    html += '<div class="row"><span>关系</span><span>' + (params.data.label || '') + '</span></div>';
+    for (var k in params.data._props) {
+      html += '<div class="row"><span>' + k + '</span><span>' + params.data._props[k] + '</span></div>';
+    }
+    d.innerHTML = html;
+    d.style.display = 'block';
+  }
+});
+
+function exportPNG() {
+  var url = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0d1117' });
+  var a = document.createElement('a');
+  a.href = url; a.download = 'lineage.png'; a.click();
+}
+
+function exportCSV() {
+  var rows = [['type', 'id', 'label/source', 'target', 'props']];
+  lineageData.nodes.forEach(function(n) {
+    rows.push(['node', n.id, n.label, '', JSON.stringify(n.props)]);
+  });
+  lineageData.edges.forEach(function(e) {
+    rows.push(['edge', '', e.source, e.target, JSON.stringify(e.props)]);
+  });
+  var csv = rows.map(function(r) {
+    return r.map(function(c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+  }).join('\n');
+  var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'lineage.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+window.addEventListener('resize', function() { chart.resize(); });
+</script>
+</body>
+</html>
